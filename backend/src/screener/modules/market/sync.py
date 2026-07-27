@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from screener.modules.market.domain import MarketDataProvider
+from screener.modules.market.infrastructure.models import SyncJobRun
 from screener.modules.market.infrastructure.repositories import (
     DailyBarRepository,
     StockRepository,
@@ -62,10 +63,10 @@ class _Runner:
                 await session.commit()
             except Exception as exc:
                 await session.rollback()
-                run = await session.get(type(run), run.id)
-                if run is None:
+                stored_run = await session.get(SyncJobRun, run.id)
+                if stored_run is None:
                     raise
-                await jobs.finish(run, UpsertResult(), str(exc)[:2000])
+                await jobs.finish(stored_run, UpsertResult(), str(exc)[:2000])
                 await session.commit()
                 logger.exception(
                     "sync_failed job_name=%s duration_ms=%d",

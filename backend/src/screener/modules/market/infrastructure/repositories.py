@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -27,6 +26,76 @@ def _values_equal(left: object, right: object) -> bool:
     return left == right
 
 
+def _stock_upsert_statement(rows: list[dict[str, object]], *, sqlite: bool) -> Executable:
+    if sqlite:
+        sqlite_statement = sqlite_insert(Stock).values(rows)
+        sqlite_excluded = sqlite_statement.excluded
+        return sqlite_statement.on_conflict_do_update(
+            index_elements=[Stock.symbol],
+            set_={
+                "name": sqlite_excluded.name,
+                "market": sqlite_excluded.market,
+                "exchange": sqlite_excluded.exchange,
+                "currency": sqlite_excluded.currency,
+                "country": sqlite_excluded.country,
+                "security_type": sqlite_excluded.security_type,
+                "listing_status": sqlite_excluded.listing_status,
+                "is_active": sqlite_excluded.is_active,
+                "updated_at": func.now(),
+            },
+        )
+    postgres_statement = pg_insert(Stock).values(rows)
+    postgres_excluded = postgres_statement.excluded
+    return postgres_statement.on_conflict_do_update(
+        index_elements=[Stock.symbol],
+        set_={
+            "name": postgres_excluded.name,
+            "market": postgres_excluded.market,
+            "exchange": postgres_excluded.exchange,
+            "currency": postgres_excluded.currency,
+            "country": postgres_excluded.country,
+            "security_type": postgres_excluded.security_type,
+            "listing_status": postgres_excluded.listing_status,
+            "is_active": postgres_excluded.is_active,
+            "updated_at": func.now(),
+        },
+    )
+
+
+def _daily_bar_upsert_statement(rows: list[dict[str, object]], *, sqlite: bool) -> Executable:
+    if sqlite:
+        sqlite_statement = sqlite_insert(DailyBarRecord).values(rows)
+        sqlite_excluded = sqlite_statement.excluded
+        return sqlite_statement.on_conflict_do_update(
+            index_elements=[DailyBarRecord.symbol, DailyBarRecord.trading_date],
+            set_={
+                "open": sqlite_excluded.open,
+                "high": sqlite_excluded.high,
+                "low": sqlite_excluded.low,
+                "close": sqlite_excluded.close,
+                "volume": sqlite_excluded.volume,
+                "source": sqlite_excluded.source,
+                "provider_timestamp": sqlite_excluded.provider_timestamp,
+                "updated_at": func.now(),
+            },
+        )
+    postgres_statement = pg_insert(DailyBarRecord).values(rows)
+    postgres_excluded = postgres_statement.excluded
+    return postgres_statement.on_conflict_do_update(
+        constraint="uq_daily_bars_symbol_date",
+        set_={
+            "open": postgres_excluded.open,
+            "high": postgres_excluded.high,
+            "low": postgres_excluded.low,
+            "close": postgres_excluded.close,
+            "volume": postgres_excluded.volume,
+            "source": postgres_excluded.source,
+            "provider_timestamp": postgres_excluded.provider_timestamp,
+            "updated_at": func.now(),
+        },
+    )
+
+
 class StockRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -51,7 +120,7 @@ class StockRepository:
             ).all()
         }
         inserted = updated = skipped = 0
-        rows: list[dict[str, Any]] = []
+        rows: list[dict[str, object]] = []
         for x in items:
             row = {
                 "symbol": x.symbol,
@@ -74,40 +143,8 @@ class StockRepository:
                 continue
             rows.append(row)
         if rows:
-            if self.session.bind is not None and self.session.bind.dialect.name == "sqlite":
-                sqlite_stmt = sqlite_insert(Stock).values(rows)
-                excluded = sqlite_stmt.excluded
-                statement: Executable = sqlite_stmt.on_conflict_do_update(
-                    index_elements=[Stock.symbol],
-                    set_={
-                        "name": excluded.name,
-                        "market": excluded.market,
-                        "exchange": excluded.exchange,
-                        "currency": excluded.currency,
-                        "country": excluded.country,
-                        "security_type": excluded.security_type,
-                        "listing_status": excluded.listing_status,
-                        "is_active": excluded.is_active,
-                        "updated_at": func.now(),
-                    },
-                )
-            else:
-                postgres_stmt = pg_insert(Stock).values(rows)
-                excluded = postgres_stmt.excluded
-                statement = postgres_stmt.on_conflict_do_update(
-                    index_elements=[Stock.symbol],
-                    set_={
-                        "name": excluded.name,
-                        "market": excluded.market,
-                        "exchange": excluded.exchange,
-                        "currency": excluded.currency,
-                        "country": excluded.country,
-                        "security_type": excluded.security_type,
-                        "listing_status": excluded.listing_status,
-                        "is_active": excluded.is_active,
-                        "updated_at": func.now(),
-                    },
-                )
+            is_sqlite = self.session.bind is not None and self.session.bind.dialect.name == "sqlite"
+            statement = _stock_upsert_statement(rows, sqlite=is_sqlite)
             await self.session.execute(statement)
         return UpsertResult(inserted, updated, skipped)
 
@@ -143,7 +180,7 @@ class DailyBarRepository:
                 )
             ).all()
         }
-        rows = []
+        rows: list[dict[str, object]] = []
         inserted = updated = skipped = 0
         for b in bars:
             row = {
@@ -171,38 +208,8 @@ class DailyBarRepository:
                 continue
             rows.append(row)
         if rows:
-            if self.session.bind is not None and self.session.bind.dialect.name == "sqlite":
-                sqlite_stmt = sqlite_insert(DailyBarRecord).values(rows)
-                e = sqlite_stmt.excluded
-                statement: Executable = sqlite_stmt.on_conflict_do_update(
-                    index_elements=[DailyBarRecord.symbol, DailyBarRecord.trading_date],
-                    set_={
-                        "open": e.open,
-                        "high": e.high,
-                        "low": e.low,
-                        "close": e.close,
-                        "volume": e.volume,
-                        "source": e.source,
-                        "provider_timestamp": e.provider_timestamp,
-                        "updated_at": func.now(),
-                    },
-                )
-            else:
-                postgres_stmt = pg_insert(DailyBarRecord).values(rows)
-                e = postgres_stmt.excluded
-                statement = postgres_stmt.on_conflict_do_update(
-                    constraint="uq_daily_bars_symbol_date",
-                    set_={
-                        "open": e.open,
-                        "high": e.high,
-                        "low": e.low,
-                        "close": e.close,
-                        "volume": e.volume,
-                        "source": e.source,
-                        "provider_timestamp": e.provider_timestamp,
-                        "updated_at": func.now(),
-                    },
-                )
+            is_sqlite = self.session.bind is not None and self.session.bind.dialect.name == "sqlite"
+            statement = _daily_bar_upsert_statement(rows, sqlite=is_sqlite)
             await self.session.execute(statement)
         return UpsertResult(inserted, updated, skipped)
 
