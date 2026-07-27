@@ -1,11 +1,11 @@
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
@@ -90,7 +90,9 @@ async def sync_conflict_handler(_: Request, exc: SyncAlreadyRunningError) -> JSO
 
 
 @app.middleware("http")
-async def request_id_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+async def request_id_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
