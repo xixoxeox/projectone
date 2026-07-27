@@ -71,6 +71,18 @@ def test_successful_breakout_uses_previous_twenty_bars() -> None:
     assert all(reason.startswith("PASSED:") for reason in result.reasons)
 
 
+def test_breakout_exposes_atr14_when_available() -> None:
+    result = evaluate(snapshot=indicators(atr14=Decimal("3.25")))
+
+    assert result.metrics["atr14"] == Decimal("3.25")
+
+
+def test_breakout_omits_atr14_when_unavailable() -> None:
+    result = evaluate(snapshot=indicators(atr14=None))
+
+    assert "atr14" not in result.metrics
+
+
 def test_breakout_fails_below_previous_high() -> None:
     result = evaluate(bars_with_latest(high="125", close="119"))
 
