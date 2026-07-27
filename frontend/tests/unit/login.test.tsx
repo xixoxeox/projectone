@@ -1,4 +1,3 @@
-import React from "react";
 import { render, screen } from "@testing-library/react";
 import { vi, test, expect } from "vitest";
 import LoginPage from "@/app/login/page";
