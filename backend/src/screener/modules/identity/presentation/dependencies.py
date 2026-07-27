@@ -33,9 +33,22 @@ async def get_current_user(
     except (jwt.PyJWTError, KeyError, ValueError) as exc:
         raise unauthorized from exc
     user = await session.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
-    if user is None or user.role != "admin":
+    if user is None:
         raise unauthorized
     return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def require_admin(user: CurrentUser) -> User:
+    """Enforce the current role-based, single-administrator policy."""
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access required",
+        )
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]

@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     toss_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     toss_max_retries: int = Field(default=2, ge=0, le=5)
     toss_token_expiry_skew_seconds: int = Field(default=30, ge=0, le=300)
+    scheduler_enabled: bool = True
+    sync_history_years: int = Field(default=3, ge=1, le=20)
+    sync_batch_size: int = Field(default=500, ge=10, le=5000)
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

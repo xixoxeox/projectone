@@ -198,6 +198,39 @@ class TossMarketDataProvider:
         except (KeyError, TypeError, ValidationError) as exc:
             self._malformed(exc)
 
+    async def stock_master(self, market: str = "KOSPI") -> list[InstrumentSnapshot]:
+        """Read every page of the official stock collection without leaking cursors."""
+        cursor: str | None = None
+        result: list[InstrumentSnapshot] = []
+        while True:
+            params = {"market": market, "limit": "500"}
+            if cursor:
+                params["cursor"] = cursor
+            payload = self._object(await self._request(self._spec.STOCKS_PATH, params))
+            try:
+                now = datetime.now(UTC)
+                result.extend(
+                    InstrumentSnapshot(
+                        symbol=str(row["symbol"]),
+                        name=str(row["name"]),
+                        market=str(row["market"]),
+                        country=_optional(row, "country"),
+                        currency=str(row["currency"]),
+                        security_type=_optional(row, "securityType"),
+                        listing_status=_optional(row, "listingStatus"),
+                        exchange=_optional(row, "exchange"),
+                        source=PROVIDER,
+                        as_of=now,
+                    )
+                    for row in self._rows(payload, "stocks")
+                )
+            except (KeyError, TypeError, ValidationError) as exc:
+                self._malformed(exc)
+            value = payload.get("nextCursor")
+            cursor = str(value) if value else None
+            if not cursor:
+                return result
+
     async def daily_bars(self, symbol: str, start: date, end: date) -> list[DailyBar]:
         count = min((end - start).days + 1, self._spec.MAX_CANDLES)
         response = await self._request(

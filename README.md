@@ -71,3 +71,14 @@ cd frontend && npm run lint && npm run typecheck && npm test && npm run build
 ## 인증 흐름
 
 로그인은 짧은 수명의 access JWT를 응답하고 refresh token은 제한된 경로의 HttpOnly cookie에 저장합니다. Refresh 시 서버 세션을 폐기하고 새 토큰으로 회전합니다. 프론트는 access token을 메모리에만 보관하며 보호 화면 진입 시 refresh 후 `/auth/me`를 확인합니다. 운영 환경에서는 강한 독립 비밀, HTTPS, `REFRESH_COOKIE_SECURE=true`, 정확한 CORS origin이 필수입니다.
+
+## Market data ingestion
+
+Sprint 4 persists the KOSPI stock master and provider-neutral daily OHLCV bars. Apply
+`alembic upgrade head`, then enable `SCHEDULER_ENABLED` (disabled automatically when
+`APP_ENV=test`). The Asia/Seoul scheduler refreshes stocks at 06:00 and bars at 18:00.
+Administrators can use `POST /api/v1/admin/sync/{stocks,daily-bars,all}` and
+`GET /api/v1/admin/sync/{status,history}` with an administrator bearer token. New symbols
+receive `SYNC_HISTORY_YEARS` (three by default); existing symbols resume after their latest bar.
+All sync routes enforce the persisted `User.role == "admin"` policy; authenticated non-admin
+users receive 403. A duplicate in-process execution receives 409 instead of calling Toss twice.
