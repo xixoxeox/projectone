@@ -10,8 +10,12 @@ from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
 from screener.modules.market.application import MarketDataService
 from screener.modules.market.infrastructure.toss import TokenManager, TossMarketDataProvider
+from screener.modules.market.presentation.admin_router import router as admin_sync_router
 from screener.modules.market.presentation.router import router as market_router
+from screener.modules.market.scheduler import build_scheduler
+from screener.modules.market.sync import DailyBarSyncService, StockSyncService, SyncCoordinator
 from screener.modules.operations.presentation.router import router as health_router
+from screener.shared.database import SessionFactory
 from screener.shared.logging import configure_logging
 
 settings = get_settings()
@@ -37,9 +41,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.token_manager = tokens
     app.state.market_data_provider = provider
     app.state.market_data_service = MarketDataService(provider)
+    stock_sync = StockSyncService(SessionFactory, provider)
+    bar_sync = DailyBarSyncService(
+        SessionFactory, provider, settings.sync_history_years, settings.sync_batch_size
+    )
+    app.state.sync_coordinator = SyncCoordinator(stock_sync, bar_sync)
+    scheduler = build_scheduler(stock_sync, bar_sync)
+    app.state.scheduler = scheduler
+    if settings.scheduler_enabled and settings.app_env != "test":
+        scheduler.start()
     try:
         yield
     finally:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
         await client.aclose()
 
 
@@ -70,3 +85,4 @@ async def request_id_middleware(request: Request, call_next):  # type: ignore[no
 app.include_router(auth_router, prefix=settings.api_base_path)
 app.include_router(health_router, prefix=settings.api_base_path)
 app.include_router(market_router, prefix=settings.api_base_path)
+app.include_router(admin_sync_router, prefix=settings.api_base_path)

@@ -159,3 +159,24 @@ Next.js는 App Router 기준으로 설계하되 실제 버전은 구현 시작 �
 - 공급자 API가 불명확한 필드는 추정 매핑하지 않는다.
 - 금융 계산은 부동소수점 대신 적절한 `NUMERIC`/Decimal을 사용한다.
 - 운영자가 수정 가능한 전략과 배포 코드 전략의 범위를 구현 전에 확정한다.
+
+## Persistence and synchronization
+
+Market persistence is normalized into `stocks` (instrument identity), `daily_bars` (a
+foreign-keyed time series), `sync_jobs` (durable state), and `sync_job_runs` (execution audit).
+A unique `(symbol, trading_date)` constraint is the final duplicate guard. Database checks
+complement provider-neutral model validation for non-negative, coherent OHLCV data.
+
+`StockSyncService` and `DailyBarSyncService` depend on the provider protocol and SQLAlchemy
+repositories. Stock pages are collected at the Toss adapter boundary. Candle synchronization
+loads latest dates in one grouped query, fetches only missing suffixes, and writes batches with
+PostgreSQL `ON CONFLICT DO UPDATE`; unchanged rows are filtered before writing.
+
+Every execution first creates a durable running audit. Exceptions roll back the current
+transaction, record a sanitized failure, and are re-raised. Completed batches and latest-date
+discovery let the next run resume. Structured logs contain job and row metrics, never secrets.
+
+APScheduler uses Asia/Seoul time, coalesces delayed executions, and permits one instance per
+job. It starts during FastAPI lifespan except under `APP_ENV=test`. A production deployment
+should enable it on exactly one replica (or use a dedicated worker); database uniqueness still
+prevents duplicate bars.
