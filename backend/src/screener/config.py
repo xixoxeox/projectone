@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     refresh_cookie_secure: bool = False
     cors_origins: list[str] = ["http://localhost:3000"]
     market_data_provider: Literal["toss"] = "toss"
-    toss_api_base_url: str = "https://example.invalid"
+    toss_api_base_url: str = "https://openapi.tossinvest.com"
     toss_client_id: str | None = None
     toss_client_secret: SecretStr | None = None
     toss_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
