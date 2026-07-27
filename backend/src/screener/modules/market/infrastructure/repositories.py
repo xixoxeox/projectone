@@ -122,7 +122,7 @@ class StockRepository:
         inserted = updated = skipped = 0
         rows: list[dict[str, object]] = []
         for x in items:
-            row = {
+            row: dict[str, object] = {
                 "symbol": x.symbol,
                 "name": x.name,
                 "market": x.market,
