@@ -152,9 +152,23 @@ async def test_incremental_sync_bootstrap_and_latest_date(
         await session.commit()
         service = DailyBarSyncService(sessions, provider, history_years=3)
         await service._sync(session)
-    requests = {symbol: start for symbol, start, _ in provider.requests}
-    assert requests["000001"] == date.today() - timedelta(days=365 * 3)
-    assert requests["000002"] == date.today() - timedelta(days=1)
+    requests_by_symbol: dict[str, list[tuple[date, date]]] = {}
+    for symbol, start, end in provider.requests:
+        requests_by_symbol.setdefault(symbol, []).append((start, end))
+
+    expected_starts = {
+        "000001": date.today() - timedelta(days=365 * 3),
+        "000002": date.today() - timedelta(days=1),
+    }
+    for symbol, expected_start in expected_starts.items():
+        windows = sorted(requests_by_symbol[symbol])
+        assert windows[0][0] == expected_start
+        assert windows[-1][1] == date.today()
+        assert all(start <= end for start, end in windows)
+        assert all(
+            next_start == current_end + timedelta(days=1)
+            for (_, current_end), (next_start, _) in zip(windows, windows[1:], strict=False)
+        )
 
 
 def test_daily_bar_validation_rejects_negative_and_invalid_ohlc() -> None:

@@ -1,15 +1,12 @@
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
-
-_Result = TypeVar("_Result")
 
 class AsyncIOScheduler:
     def __init__(self, *, timezone: str) -> None: ...
     @property
     def running(self) -> bool: ...
-    def add_job(
+    def add_job[Result](
         self,
-        func: Callable[[], Awaitable[_Result]],
+        func: Callable[[], Awaitable[Result]],
         trigger: str,
         *,
         id: str,
