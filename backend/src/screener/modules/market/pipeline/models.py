@@ -29,6 +29,20 @@ class TriggerType(StrEnum):
     MANUAL = "manual"
 
 
+class ExecutionAcquireStatus(StrEnum):
+    ACQUIRED = "acquired"
+    ALREADY_RUNNING = "already_running"
+    ALREADY_COMPLETED = "already_completed"
+
+
+class ExecutionAcquireResult(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+
+    status: ExecutionAcquireStatus
+    execution: object | None = None
+    recovered_execution_id: uuid.UUID | None = None
+
+
 class PipelineResult(BaseModel):
     execution_id: uuid.UUID | None = None
     trading_date: date

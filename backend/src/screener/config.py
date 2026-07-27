@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     toss_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     toss_max_retries: int = Field(default=2, ge=0, le=5)
     toss_token_expiry_skew_seconds: int = Field(default=30, ge=0, le=300)
-    scheduler_enabled: bool = True
+    scheduler_enabled: bool = False
+    watchlist_pipeline_stale_after_seconds: int = Field(default=7200, gt=0)
     watchlist_job_hour: int = Field(default=18, ge=0, le=23)
     watchlist_job_minute: int = Field(default=20, ge=0, le=59)
     watchlist_job_timezone: str = "Asia/Seoul"

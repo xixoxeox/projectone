@@ -13,6 +13,7 @@ from screener.modules.market.domain import DailyBar
 from screener.modules.market.indicators.service import IndicatorService
 from screener.modules.market.infrastructure.models import DailyBarRecord, WatchlistPipelineExecution
 from screener.modules.market.pipeline.models import (
+    ExecutionAcquireStatus,
     ExecutionStatus,
     PipelineResult,
     PipelineStage,
@@ -39,9 +40,11 @@ class DailyWatchlistPipeline:
         scanner: CandidateScanner,
         ranker: CandidateRanker,
         timezone: str = "Asia/Seoul",
+        stale_after_seconds: int = 7200,
     ) -> None:
         self.sessions, self.sync, self.indicators = sessions, sync, indicators
         self.scanner, self.ranker, self.timezone = scanner, ranker, ZoneInfo(timezone)
+        self.stale_after_seconds = stale_after_seconds
 
     async def run(
         self, trading_date: date | None = None, trigger: TriggerType = TriggerType.MANUAL
@@ -58,16 +61,21 @@ class DailyWatchlistPipeline:
                 skipped_reason="weekend",
             )
         async with self.sessions() as session:
-            run = await PipelineExecutionRepository(session).acquire(target, trigger)
-        if run is None:
+            acquisition = await PipelineExecutionRepository(session).acquire(
+                target, trigger, self.stale_after_seconds
+            )
+        if acquisition.status != ExecutionAcquireStatus.ACQUIRED:
             return PipelineResult(
                 trading_date=target,
                 status=ExecutionStatus.SKIPPED,
                 started_at=started,
                 finished_at=datetime.now(UTC),
                 stage=PipelineStage.DUPLICATE_CHECK,
-                skipped_reason="already_running_or_completed",
+                skipped_reason=acquisition.status.value,
             )
+        run = acquisition.execution
+        if not isinstance(run, WatchlistPipelineExecution):
+            raise RuntimeError("acquired execution is missing")
 
         stage = PipelineStage.MARKET_SYNC
         try:

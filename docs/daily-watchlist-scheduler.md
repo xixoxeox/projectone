@@ -9,7 +9,8 @@ order. The lifespan-created `AsyncIOScheduler` registers one `daily-watchlist-pi
 for Monday through Friday at **18:20 Asia/Seoul** by default; it does not run at startup. The hour,
 minute, IANA timezone, enable flag, and positive misfire grace are configured with
 `WATCHLIST_JOB_HOUR`, `WATCHLIST_JOB_MINUTE`, `WATCHLIST_JOB_TIMEZONE`, `SCHEDULER_ENABLED`, and
-`WATCHLIST_JOB_MISFIRE_GRACE_SECONDS`.
+`WATCHLIST_JOB_MISFIRE_GRACE_SECONDS`. Scheduling is opt-in: `SCHEDULER_ENABLED` defaults to
+`false`, and exactly one production process or container must explicitly set it to `true`.
 
 The explicit stages are date resolution, duplicate check, market sync, indicator calculation,
 screening, candidate scanning, ranking, atomic watchlist persistence, and completion. “Today” is
@@ -19,12 +20,17 @@ skipped. This is deterministic but is not a full KRX holiday calendar.
 
 ## Reliability and transactions
 
-Execution history is stored in `watchlist_pipeline_executions` with timezone-aware timestamps and
-sanitized error metadata. A PostgreSQL partial unique index permits only one `running` or
-`succeeded` row per trading date. Inserting the running row is the database-backed ownership
-operation, so competing workers and instances lose safely. Failed and skipped rows do not prevent
-a later retry. The successful row prevents accidental replacement. This depends on PostgreSQL;
-SQLite tests cannot prove its distributed concurrency behavior.
+Execution history uses timezone-aware UTC timestamps and sanitized error metadata. A run is stale
+when it remains `running` and `started_at` is older than the positive
+`WATCHLIST_PIPELINE_STALE_AFTER_SECONDS` timeout (7200 seconds by default). Acquisition takes a
+PostgreSQL transaction advisory lock keyed by the trading-date ordinal. In that transaction it
+inspects the active row, marks a stale row `failed` with `finished_at`,
+`stale_execution_recovered`, and a sanitized detail, and inserts its replacement. Simultaneous
+recovery attempts therefore produce one owner while retaining the abandoned run in history.
+
+The partial unique index remains defense in depth: only one `running` or `succeeded` row can exist
+per date. Failed and skipped rows permit retry; success prevents replacement. PostgreSQL tests
+using independent sessions are required because SQLite cannot prove advisory-lock concurrency.
 
 Transactions are deliberately short: ownership/history creation commits first, provider and CPU
 work occurs afterward, watchlist replacement commits atomically only after all ranked results are
@@ -45,12 +51,14 @@ All endpoints require the existing administrator bearer authentication:
 * `GET /api/v1/admin/watchlist/executions?limit=50`
 * `GET /api/v1/admin/watchlist/executions/{execution_id}`
 
-Responses exclude `error_detail`; internal exception types are retained only as sanitized
-operational metadata and stack information goes only to server logs. Concurrent/completed manual
-runs return HTTP 409, validation uses HTTP 422, and pipeline failures expose only an error code.
+Responses exclude `error_detail`; stack information goes only to server logs. An active manual run
+returns HTTP 409, while an already-completed date returns HTTP 200 with `already_completed`.
+Validation uses HTTP 422 and failures expose only an error code. After a container kill, host
+reboot, OOM, or worker crash, the first acquisition past the timeout finalizes the abandoned row
+and starts a replacement; no history is deleted.
 
 APScheduler is not distributed coordination. Production must enable scheduling on **exactly one**
-instance. `docker compose --profile scheduler up` starts the optional scheduler-enabled backend;
+instance. `docker compose --profile scheduler up` starts an optional scheduler-enabled API instance;
 the normal `backend` service explicitly disables it. API-only instances and tests should set
 `SCHEDULER_ENABLED=false` (test mode also suppresses startup). Shutdown through FastAPI lifespan
 stops the scheduler cleanly. The optional service currently runs the same FastAPI image rather
