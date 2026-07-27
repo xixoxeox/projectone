@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from screener.api.watchlist.router import router as watchlist_router
 from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
 from screener.modules.market.application import MarketDataService
@@ -103,3 +104,4 @@ app.include_router(auth_router, prefix=settings.api_base_path)
 app.include_router(health_router, prefix=settings.api_base_path)
 app.include_router(market_router, prefix=settings.api_base_path)
 app.include_router(admin_sync_router, prefix=settings.api_base_path)
+app.include_router(watchlist_router, prefix=settings.api_base_path)

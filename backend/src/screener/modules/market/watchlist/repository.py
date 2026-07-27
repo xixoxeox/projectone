@@ -61,6 +61,25 @@ class WatchlistRepository:
             return []
         return await self.list(latest_date)
 
+    async def history(self) -> builtins.list[date]:
+        """Return stored trading dates ordered from newest to oldest."""
+        dates = await self._session.scalars(
+            select(WatchlistEntryRecord.trading_date)
+            .distinct()
+            .order_by(WatchlistEntryRecord.trading_date.desc())
+        )
+        return list(dates)
+
+    async def get(self, trading_date: date, symbol: str) -> WatchlistEntry | None:
+        """Return one entry for a date and symbol, if it exists."""
+        record = await self._session.scalar(
+            select(WatchlistEntryRecord).where(
+                WatchlistEntryRecord.trading_date == trading_date,
+                WatchlistEntryRecord.symbol == symbol,
+            )
+        )
+        return None if record is None else self._entry(record)
+
     async def exists(self, trading_date: date) -> bool:
         """Return whether at least one entry exists for ``trading_date``."""
         entry_id = await self._session.scalar(
