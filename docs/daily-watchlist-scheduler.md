@@ -23,14 +23,21 @@ skipped. This is deterministic but is not a full KRX holiday calendar.
 Execution history uses timezone-aware UTC timestamps and sanitized error metadata. A run is stale
 when it remains `running` and `started_at` is older than the positive
 `WATCHLIST_PIPELINE_STALE_AFTER_SECONDS` timeout (7200 seconds by default). Acquisition takes a
-PostgreSQL transaction advisory lock keyed by the trading-date ordinal. In that transaction it
-inspects the active row, marks a stale row `failed` with `finished_at`,
+PostgreSQL two-key transaction advisory lock keyed by the documented watchlist namespace `1001`
+and the trading-date ordinal. The namespace isolates this job family from future alert, report, or
+sync schedulers that may also use date ordinals in PostgreSQL's database-wide advisory-lock space.
+In that transaction acquisition inspects the active row, marks a stale row `failed` with `finished_at`,
 `stale_execution_recovered`, and a sanitized detail, and inserts its replacement. Simultaneous
 recovery attempts therefore produce one owner while retaining the abandoned run in history.
 
 The partial unique index remains defense in depth: only one `running` or `succeeded` row can exist
 per date. Failed and skipped rows permit retry; success prevents replacement. PostgreSQL tests
 using independent sessions are required because SQLite cannot prove advisory-lock concurrency.
+The required migration verification sequence is `alembic upgrade head`, `alembic downgrade -1`,
+and `alembic upgrade head` against PostgreSQL. Advisory locks are runtime primitives and require no
+schema migration; the sequence verifies that the partial active-execution index is recreated. CI
+runs this sequence and the PostgreSQL integration suite against its PostgreSQL 17 service with
+`TEST_DATABASE_URL`; local verification requires an equivalent reachable PostgreSQL database.
 
 Transactions are deliberately short: ownership/history creation commits first, provider and CPU
 work occurs afterward, watchlist replacement commits atomically only after all ranked results are

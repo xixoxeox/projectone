@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from screener.modules.market.infrastructure.models import WatchlistPipelineExecution
@@ -17,6 +17,7 @@ from screener.modules.market.pipeline import (
     PipelineStage,
     TriggerType,
 )
+from screener.modules.market.pipeline.repository import WATCHLIST_PIPELINE_LOCK_NAMESPACE
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL PostgreSQL database is required"
@@ -97,3 +98,24 @@ async def test_stale_recovery_is_atomic_and_preserves_history(
     assert recovered.error_code == "stale_execution_recovered"
     assert recovered.error_detail == "Execution exceeded stale timeout"
     assert sum(item.status == "running" for item in history) == 1
+
+
+async def test_acquire_waits_for_namespaced_date_lock(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    day = date(2026, 7, 29)
+    async with sessions() as lock_session:
+        await lock_session.execute(
+            text("SELECT pg_advisory_xact_lock(:namespace, :trading_date)"),
+            {
+                "namespace": WATCHLIST_PIPELINE_LOCK_NAMESPACE,
+                "trading_date": day.toordinal(),
+            },
+        )
+        competing_acquire = asyncio.create_task(acquire(sessions, day))
+        await asyncio.sleep(0.1)
+        assert not competing_acquire.done()
+        await lock_session.rollback()
+
+    result = await asyncio.wait_for(competing_acquire, timeout=2)
+    assert result.status == ExecutionAcquireStatus.ACQUIRED

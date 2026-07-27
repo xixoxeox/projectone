@@ -13,6 +13,11 @@ from screener.modules.market.pipeline.models import (
     TriggerType,
 )
 
+# PostgreSQL advisory locks share a database-wide namespace. The two-key form reserves
+# the first key for this job family, preventing future schedulers that also use date
+# ordinals from accidentally contending with watchlist execution acquisition.
+WATCHLIST_PIPELINE_LOCK_NAMESPACE = 1001
+
 
 class PipelineExecutionRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -23,15 +28,18 @@ class PipelineExecutionRepository:
     ) -> ExecutionAcquireResult:
         """Acquire a date while holding a PostgreSQL transaction advisory lock.
 
-        The date ordinal is a stable, collision-free key within the supported date domain.
+        The namespace and date ordinal form a stable, collision-free key for this job family.
         The partial unique index remains a final defense against duplicate active rows.
         """
         if stale_after_seconds <= 0:
             raise ValueError("stale_after_seconds must be positive")
         if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
             await self.session.execute(
-                text("SELECT pg_advisory_xact_lock(:lock_key)"),
-                {"lock_key": trading_date.toordinal()},
+                text("SELECT pg_advisory_xact_lock(:namespace, :trading_date)"),
+                {
+                    "namespace": WATCHLIST_PIPELINE_LOCK_NAMESPACE,
+                    "trading_date": trading_date.toordinal(),
+                },
             )
         active = await self.session.scalar(
             select(WatchlistPipelineExecution)
@@ -44,7 +52,8 @@ class PipelineExecutionRepository:
             .order_by(WatchlistPipelineExecution.started_at.desc())
         )
         if active is not None and active.status == ExecutionStatus.SUCCEEDED.value:
-            await self.session.commit()
+            # End the read-only transaction promptly and release its transaction lock.
+            await self.session.rollback()
             return ExecutionAcquireResult(
                 status=ExecutionAcquireStatus.ALREADY_COMPLETED, execution=active
             )
@@ -55,7 +64,9 @@ class PipelineExecutionRepository:
             if started_at.tzinfo is None:  # SQLite test databases discard timezone metadata.
                 started_at = started_at.replace(tzinfo=UTC)
             if started_at >= now - timedelta(seconds=stale_after_seconds):
-                await self.session.commit()
+                # No state changed; rollback avoids an unnecessary database commit and
+                # releases the transaction-scoped advisory lock immediately.
+                await self.session.rollback()
                 return ExecutionAcquireResult(
                     status=ExecutionAcquireStatus.ALREADY_RUNNING, execution=active
                 )
