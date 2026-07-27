@@ -1,4 +1,7 @@
 from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
+_Result = TypeVar("_Result")
 
 class AsyncIOScheduler:
     def __init__(self, *, timezone: str) -> None: ...
@@ -6,7 +9,7 @@ class AsyncIOScheduler:
     def running(self) -> bool: ...
     def add_job(
         self,
-        func: Callable[[], Awaitable[object]],
+        func: Callable[[], Awaitable[_Result]],
         trigger: str,
         *,
         id: str,

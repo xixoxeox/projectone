@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from screener.config import Settings
-from screener.main import should_start_scheduler
+from screener.main import should_start_scheduler, sync_conflict_handler
 from screener.modules.identity.presentation.dependencies import get_current_user
 from screener.modules.market.domain import DailyBar, InstrumentSnapshot
 from screener.modules.market.infrastructure.models import DailyBarRecord, Stock, SyncJobRun
@@ -194,8 +194,10 @@ async def test_sync_records_success_and_failure(sessions: async_sessionmaker[Asy
     successful = StockSyncService(sessions, provider)
     assert (await successful.run()).status == "succeeded"
     provider.failure = RuntimeError("offline failure")
+    failing = StockSyncService(sessions, provider)
     with pytest.raises(RuntimeError, match="offline failure"):
-        await StockSyncService(sessions, provider).run()
+        await failing.run()
+    assert not failing._run_lock.locked()
     async with sessions() as session:
         statuses = [
             run.status
@@ -271,4 +273,19 @@ def test_admin_can_execute_sync() -> None:
         test_app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="admin")
         response = client.post("/api/v1/admin/sync/stocks")
     assert response.status_code == 200
+    assert response.json()["job_name"] == "stock_master"
+
+
+def test_concurrent_admin_sync_returns_conflict() -> None:
+    test_app = FastAPI()
+    test_app.include_router(router, prefix="/api/v1")
+    test_app.add_exception_handler(SyncAlreadyRunningError, sync_conflict_handler)
+    stock_service = SimpleNamespace(
+        run=AsyncMock(side_effect=SyncAlreadyRunningError("stock_master"))
+    )
+    test_app.dependency_overrides[coordinator] = lambda: SimpleNamespace(stocks=stock_service)
+    test_app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="admin")
+    with TestClient(test_app) as client:
+        response = client.post("/api/v1/admin/sync/stocks")
+    assert response.status_code == 409
     assert response.json()["job_name"] == "stock_master"
