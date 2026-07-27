@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Text,
@@ -49,7 +50,9 @@ class DailyBarRecord(Base):
             name="valid_ohlc",
         ),
     )
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
     symbol: Mapped[str] = mapped_column(ForeignKey("stocks.symbol", ondelete="CASCADE"), index=True)
     trading_date: Mapped[date] = mapped_column(Date, index=True)
     open: Mapped[Decimal] = mapped_column(Numeric(20, 6))
@@ -80,7 +83,9 @@ class SyncJob(Base):
 
 class SyncJobRun(Base):
     __tablename__ = "sync_job_runs"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
     job_name: Mapped[str] = mapped_column(
         ForeignKey("sync_jobs.name", ondelete="CASCADE"), index=True
     )

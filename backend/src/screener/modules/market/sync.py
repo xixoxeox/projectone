@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import UTC, date, datetime, timedelta
 
@@ -13,6 +14,12 @@ from screener.modules.market.infrastructure.repositories import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SyncAlreadyRunningError(RuntimeError):
+    def __init__(self, job_name: str) -> None:
+        super().__init__(f"Synchronization job '{job_name}' is already running")
+        self.job_name = job_name
 
 
 class SyncResult(BaseModel):
@@ -31,8 +38,18 @@ class _Runner:
         self, sessions: async_sessionmaker[AsyncSession], provider: MarketDataProvider
     ) -> None:
         self.sessions, self.provider = sessions, provider
+        self._run_lock = asyncio.Lock()
 
     async def run(self) -> SyncResult:
+        if self._run_lock.locked():
+            raise SyncAlreadyRunningError(self.name)
+        await self._run_lock.acquire()
+        try:
+            return await self._run_locked()
+        finally:
+            self._run_lock.release()
+
+    async def _run_locked(self) -> SyncResult:
         started = datetime.now(UTC)
         async with self.sessions() as session:
             jobs = SyncJobRepository(session)

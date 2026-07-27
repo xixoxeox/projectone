@@ -180,3 +180,8 @@ APScheduler uses Asia/Seoul time, coalesces delayed executions, and permits one 
 job. It starts during FastAPI lifespan except under `APP_ENV=test`. A production deployment
 should enable it on exactly one replica (or use a dedicated worker); database uniqueness still
 prevents duplicate bars.
+
+Manual and scheduled executions share a process-local `asyncio.Lock` per job. A concurrent
+manual request receives HTTP 409, and locks are released in a `finally` block after success or
+failure. These locks intentionally do not coordinate separate application replicas; the
+single-scheduler-replica limitation above therefore still applies.

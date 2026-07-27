@@ -14,7 +14,7 @@ dependencies = [
   "httpx>=0.28,<1", "apscheduler>=3.11,<4"
 ]
 [project.optional-dependencies]
-dev = ["aiosqlite>=0.21,<1", "httpx>=0.28,<1", "pytest>=8.4,<9", "pytest-asyncio>=1.0,<2", "ruff>=0.12,<1", "mypy>=1.16,<2"]
+dev = ["aiosqlite>=0.21,<1", "httpx>=0.28,<1", "pytest>=8.4,<9", "pytest-asyncio>=1.0,<2", "ruff>=0.12,<1", "mypy>=1.16,<2", "types-APScheduler>=3.11,<4"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/screener"]

@@ -80,3 +80,5 @@ Sprint 4 persists the KOSPI stock master and provider-neutral daily OHLCV bars. 
 Administrators can use `POST /api/v1/admin/sync/{stocks,daily-bars,all}` and
 `GET /api/v1/admin/sync/{status,history}` with an administrator bearer token. New symbols
 receive `SYNC_HISTORY_YEARS` (three by default); existing symbols resume after their latest bar.
+All sync routes enforce the persisted `User.role == "admin"` policy; authenticated non-admin
+users receive 403. A duplicate in-process execution receives 409 instead of calling Toss twice.

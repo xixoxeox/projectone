@@ -4,7 +4,9 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Executable
 
 from screener.modules.market.domain import DailyBar, InstrumentSnapshot
 from screener.modules.market.infrastructure.models import DailyBarRecord, Stock, SyncJob, SyncJobRun
@@ -15,6 +17,14 @@ class UpsertResult:
     inserted: int = 0
     updated: int = 0
     skipped: int = 0
+
+
+def _values_equal(left: object, right: object) -> bool:
+    if isinstance(left, datetime) and isinstance(right, datetime):
+        left_utc = left.replace(tzinfo=UTC) if left.tzinfo is None else left.astimezone(UTC)
+        right_utc = right.replace(tzinfo=UTC) if right.tzinfo is None else right.astimezone(UTC)
+        return left_utc == right_utc
+    return left == right
 
 
 class StockRepository:
@@ -64,10 +74,10 @@ class StockRepository:
                 continue
             rows.append(row)
         if rows:
-            stmt = pg_insert(Stock).values(rows)
-            excluded = stmt.excluded
-            await self.session.execute(
-                stmt.on_conflict_do_update(
+            if self.session.bind is not None and self.session.bind.dialect.name == "sqlite":
+                sqlite_stmt = sqlite_insert(Stock).values(rows)
+                excluded = sqlite_stmt.excluded
+                statement: Executable = sqlite_stmt.on_conflict_do_update(
                     index_elements=[Stock.symbol],
                     set_={
                         "name": excluded.name,
@@ -81,7 +91,24 @@ class StockRepository:
                         "updated_at": func.now(),
                     },
                 )
-            )
+            else:
+                postgres_stmt = pg_insert(Stock).values(rows)
+                excluded = postgres_stmt.excluded
+                statement = postgres_stmt.on_conflict_do_update(
+                    index_elements=[Stock.symbol],
+                    set_={
+                        "name": excluded.name,
+                        "market": excluded.market,
+                        "exchange": excluded.exchange,
+                        "currency": excluded.currency,
+                        "country": excluded.country,
+                        "security_type": excluded.security_type,
+                        "listing_status": excluded.listing_status,
+                        "is_active": excluded.is_active,
+                        "updated_at": func.now(),
+                    },
+                )
+            await self.session.execute(statement)
         return UpsertResult(inserted, updated, skipped)
 
 
@@ -90,6 +117,8 @@ class DailyBarRepository:
         self.session = session
 
     async def latest_dates(self, symbols: list[str]) -> dict[str, date]:
+        if not symbols:
+            return {}
         result = await self.session.execute(
             select(DailyBarRecord.symbol, func.max(DailyBarRecord.trading_date))
             .where(DailyBarRecord.symbol.in_(symbols))
@@ -132,7 +161,9 @@ class DailyBarRepository:
             if old is None:
                 inserted += 1
             elif any(
-                getattr(old, k) != v for k, v in row.items() if k not in {"symbol", "trading_date"}
+                not _values_equal(getattr(old, k), v)
+                for k, v in row.items()
+                if k not in {"symbol", "trading_date"}
             ):
                 updated += 1
             else:
@@ -140,10 +171,26 @@ class DailyBarRepository:
                 continue
             rows.append(row)
         if rows:
-            stmt = pg_insert(DailyBarRecord).values(rows)
-            e = stmt.excluded
-            await self.session.execute(
-                stmt.on_conflict_do_update(
+            if self.session.bind is not None and self.session.bind.dialect.name == "sqlite":
+                sqlite_stmt = sqlite_insert(DailyBarRecord).values(rows)
+                e = sqlite_stmt.excluded
+                statement: Executable = sqlite_stmt.on_conflict_do_update(
+                    index_elements=[DailyBarRecord.symbol, DailyBarRecord.trading_date],
+                    set_={
+                        "open": e.open,
+                        "high": e.high,
+                        "low": e.low,
+                        "close": e.close,
+                        "volume": e.volume,
+                        "source": e.source,
+                        "provider_timestamp": e.provider_timestamp,
+                        "updated_at": func.now(),
+                    },
+                )
+            else:
+                postgres_stmt = pg_insert(DailyBarRecord).values(rows)
+                e = postgres_stmt.excluded
+                statement = postgres_stmt.on_conflict_do_update(
                     constraint="uq_daily_bars_symbol_date",
                     set_={
                         "open": e.open,
@@ -156,7 +203,7 @@ class DailyBarRepository:
                         "updated_at": func.now(),
                     },
                 )
-            )
+            await self.session.execute(statement)
         return UpsertResult(inserted, updated, skipped)
 
 
@@ -178,7 +225,10 @@ class SyncJobRepository:
     async def finish(self, run: SyncJobRun, result: UpsertResult, error: str | None = None) -> None:
         now = datetime.now(UTC)
         run.finished_at = now
-        run.duration_ms = int((now - run.started_at).total_seconds() * 1000)
+        started_at = (
+            run.started_at.replace(tzinfo=UTC) if run.started_at.tzinfo is None else run.started_at
+        )
+        run.duration_ms = int((now - started_at).total_seconds() * 1000)
         run.status = "failed" if error else "succeeded"
         run.error_message = error
         run.inserted_rows = result.inserted

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
@@ -13,13 +14,22 @@ from screener.modules.market.infrastructure.toss import TokenManager, TossMarket
 from screener.modules.market.presentation.admin_router import router as admin_sync_router
 from screener.modules.market.presentation.router import router as market_router
 from screener.modules.market.scheduler import build_scheduler
-from screener.modules.market.sync import DailyBarSyncService, StockSyncService, SyncCoordinator
+from screener.modules.market.sync import (
+    DailyBarSyncService,
+    StockSyncService,
+    SyncAlreadyRunningError,
+    SyncCoordinator,
+)
 from screener.modules.operations.presentation.router import router as health_router
 from screener.shared.database import SessionFactory
 from screener.shared.logging import configure_logging
 
 settings = get_settings()
 configure_logging(settings.log_level)
+
+
+def should_start_scheduler() -> bool:
+    return settings.scheduler_enabled and settings.app_env != "test"
 
 
 @asynccontextmanager
@@ -48,7 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.sync_coordinator = SyncCoordinator(stock_sync, bar_sync)
     scheduler = build_scheduler(stock_sync, bar_sync)
     app.state.scheduler = scheduler
-    if settings.scheduler_enabled and settings.app_env != "test":
+    if should_start_scheduler():
         scheduler.start()
     try:
         yield
@@ -72,6 +82,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
+
+
+@app.exception_handler(SyncAlreadyRunningError)
+async def sync_conflict_handler(_: Request, exc: SyncAlreadyRunningError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc), "job_name": exc.job_name})
 
 
 @app.middleware("http")
