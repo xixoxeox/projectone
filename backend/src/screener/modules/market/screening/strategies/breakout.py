@@ -101,6 +101,7 @@ class BreakoutStrategy:
             ("sma20", indicators.sma20),
             ("sma60", indicators.sma60),
             ("avg_volume20", indicators.avg_volume20),
+            ("atr14", indicators.atr14),
         ):
             if value is not None:
                 metrics[name] = value
