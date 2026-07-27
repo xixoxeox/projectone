@@ -6,14 +6,16 @@ Notifications are an application-boundary concern. The dependency direction is:
 
 ```text
 DailyWatchlistPipeline
-  -> PipelineResult
   -> NotificationPublishingPipeline
+  -> PipelineResult
   -> NotificationEvent
   -> NotificationService
   -> NotificationProvider
   -> SlackNotificationProvider
   -> Slack Incoming Webhook
 ```
+
+`PipelineResult`, `TriggerType`, `PipelineStage`, and `ExecutionStatus` are the canonical types from `market.pipeline.models`; the notification layer does not define parallel transport models. Execution IDs remain UUIDs until Slack formatting.
 
 The pipeline returns structured state and never imports Slack code. The boundary adapter maps an outcome to a strongly typed success or failure event and, when applicable, emits a stale-execution recovery event first. `NotificationService` owns failure isolation and structured delivery logs. Formatting and HTTP transport belong exclusively to the selected provider.
 
