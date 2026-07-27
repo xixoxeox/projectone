@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -7,14 +8,21 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from screener.api.admin_watchlist_pipeline import router as pipeline_router
 from screener.api.watchlist.router import router as watchlist_router
 from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
 from screener.modules.market.application import MarketDataService
+from screener.modules.market.indicators.service import IndicatorService
 from screener.modules.market.infrastructure.toss import TokenManager, TossMarketDataProvider
+from screener.modules.market.pipeline import DailyWatchlistPipeline
 from screener.modules.market.presentation.admin_router import router as admin_sync_router
 from screener.modules.market.presentation.router import router as market_router
+from screener.modules.market.ranking.ranker import CandidateRanker
+from screener.modules.market.scanning.scanner import CandidateScanner
 from screener.modules.market.scheduler import build_scheduler
+from screener.modules.market.screening.engine import ScreeningEngine
+from screener.modules.market.screening.strategies.breakout import BreakoutStrategy
 from screener.modules.market.sync import (
     DailyBarSyncService,
     StockSyncService,
@@ -27,6 +35,7 @@ from screener.shared.logging import configure_logging
 
 settings = get_settings()
 configure_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 
 
 def should_start_scheduler() -> bool:
@@ -57,15 +66,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         SessionFactory, provider, settings.sync_history_years, settings.sync_batch_size
     )
     app.state.sync_coordinator = SyncCoordinator(stock_sync, bar_sync)
-    scheduler = build_scheduler(stock_sync, bar_sync)
+    pipeline = DailyWatchlistPipeline(
+        SessionFactory,
+        app.state.sync_coordinator,
+        IndicatorService(),
+        CandidateScanner(ScreeningEngine(BreakoutStrategy())),
+        CandidateRanker(),
+        settings.watchlist_job_timezone,
+    )
+    app.state.daily_watchlist_pipeline = pipeline
+    scheduler = build_scheduler(pipeline, settings)
     app.state.scheduler = scheduler
     if should_start_scheduler():
         scheduler.start()
+        logger.info("daily watchlist scheduler started")
     try:
         yield
     finally:
         if scheduler.running:
             scheduler.shutdown(wait=False)
+            logger.info("daily watchlist scheduler stopped")
         await client.aclose()
 
 
@@ -105,3 +125,4 @@ app.include_router(health_router, prefix=settings.api_base_path)
 app.include_router(market_router, prefix=settings.api_base_path)
 app.include_router(admin_sync_router, prefix=settings.api_base_path)
 app.include_router(watchlist_router, prefix=settings.api_base_path)
+app.include_router(pipeline_router, prefix=settings.api_base_path)

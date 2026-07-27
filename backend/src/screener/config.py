@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,11 +34,19 @@ class Settings(BaseSettings):
     toss_max_retries: int = Field(default=2, ge=0, le=5)
     toss_token_expiry_skew_seconds: int = Field(default=30, ge=0, le=300)
     scheduler_enabled: bool = True
+    watchlist_job_hour: int = Field(default=18, ge=0, le=23)
+    watchlist_job_minute: int = Field(default=20, ge=0, le=59)
+    watchlist_job_timezone: str = "Asia/Seoul"
+    watchlist_job_misfire_grace_seconds: int = Field(default=3600, gt=0)
     sync_history_years: int = Field(default=3, ge=1, le=20)
     sync_batch_size: int = Field(default=500, ge=10, le=5000)
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
+        try:
+            ZoneInfo(self.watchlist_job_timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("WATCHLIST_JOB_TIMEZONE must be a valid IANA timezone") from exc
         if self.app_env == "production" and "development-only" in (
             self.jwt_signing_key + self.refresh_token_pepper
         ):
