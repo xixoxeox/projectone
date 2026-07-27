@@ -18,10 +18,11 @@ class BreakoutStrategy:
         indicators: IndicatorSnapshot,
     ) -> ScreeningResult:
         latest = bars[-1] if bars else None
+        previous_high20 = max(bar.high for bar in bars[-21:-1]) if len(bars) >= 21 else None
         symbol = latest.symbol if latest is not None else ""
         reasons: list[str] = []
         outcomes: list[bool] = []
-        metrics = self._metrics(latest, indicators)
+        metrics = self._metrics(latest, indicators, previous_high20)
 
         self._compare(
             reasons,
@@ -42,9 +43,9 @@ class BreakoutStrategy:
         self._compare(
             reasons,
             outcomes,
-            "latest close >= Highest20",
+            "latest close >= previous High20",
             latest.close if latest is not None else None,
-            indicators.highest20,
+            previous_high20,
             lambda left, right: left >= right,
         )
         self._compare(
@@ -88,15 +89,17 @@ class BreakoutStrategy:
     def _metrics(
         latest: DailyBar | None,
         indicators: IndicatorSnapshot,
+        previous_high20: Decimal | None,
     ) -> dict[str, Decimal]:
         metrics: dict[str, Decimal] = {}
         if latest is not None:
             metrics["close"] = latest.close
             metrics["volume"] = Decimal(latest.volume)
+        if previous_high20 is not None:
+            metrics["previous_high20"] = previous_high20
         for name, value in (
             ("sma20", indicators.sma20),
             ("sma60", indicators.sma60),
-            ("highest20", indicators.highest20),
             ("avg_volume20", indicators.avg_volume20),
         ):
             if value is not None:
