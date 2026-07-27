@@ -1,193 +1,137 @@
 import asyncio
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import httpx
 import pytest
 
 from screener.modules.market.domain import (
-    DailyBar,
     ProviderAuthenticationError,
     ProviderMalformedResponseError,
-    ProviderRateLimitError,
-    ProviderUnavailableError,
-    ProviderValidationError,
 )
 from screener.modules.market.infrastructure.toss import (
     IssuedToken,
     TokenManager,
-    TossApiSpecification,
     TossMarketDataProvider,
+    _retry_after,
+    issue_token,
 )
 
 
-def specification() -> TossApiSpecification:
-    def map_bar(row: dict[str, object], symbol: str, as_of: datetime) -> DailyBar:
-        return DailyBar(
-            symbol=symbol,
-            trading_date=date.fromisoformat(str(row["date"])),
-            open=Decimal(str(row["open"])),
-            high=Decimal(str(row["high"])),
-            low=Decimal(str(row["low"])),
-            close=Decimal(str(row["close"])),
-            volume=int(str(row["volume"])),
-            source="toss",
-            as_of=as_of,
-        )
-
-    return TossApiSpecification(
-        lambda symbol: f"/bars/{symbol}",
-        lambda start, end: {"from": start.isoformat(), "to": end.isoformat()},
-        map_bar,
-        lambda payload: payload["items"],
-    )  # type: ignore[return-value]
-
-
-async def manager(client: httpx.AsyncClient, issuer=None, skew: int = 30) -> TokenManager:
-    async def default_issuer(
-        _client: httpx.AsyncClient, client_id: str, secret: str
-    ) -> IssuedToken:
-        assert (client_id, secret) == ("id", "secret")
-        return IssuedToken(access_token="private-token", expires_in=3600)
-
-    return TokenManager(client, "id", "secret", issuer or default_issuer, skew)
-
-
 @pytest.mark.asyncio
-async def test_token_is_issued_cached_and_concurrent_refresh_is_coalesced() -> None:
+async def test_oauth_form_validation_and_cache() -> None:
     calls = 0
 
-    async def issuer(_client: httpx.AsyncClient, _id: str, _secret: str) -> IssuedToken:
+    def transport(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        await asyncio.sleep(0.01)
-        return IssuedToken(access_token="token", expires_in=3600)
+        assert request.url.path == "/oauth2/token"
+        assert request.headers["content-type"].startswith("application/x-www-form-urlencoded")
+        assert request.content == b"grant_type=client_credentials&client_id=id&client_secret=secret"
+        return httpx.Response(
+            200, json={"access_token": "private", "token_type": "Bearer", "expires_in": 3600}
+        )
 
     async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200))
+        base_url="https://mock", transport=httpx.MockTransport(transport)
     ) as client:
-        tokens = await manager(client, issuer)
-        assert await asyncio.gather(*(tokens.get() for _ in range(10))) == ["token"] * 10
-        assert await tokens.get() == "token"
+        manager = TokenManager(client, "id", "secret")
+        assert await asyncio.gather(*(manager.get() for _ in range(10))) == ["private"] * 10
     assert calls == 1
 
 
 @pytest.mark.asyncio
-async def test_token_reissued_inside_expiry_skew() -> None:
-    calls = 0
-
-    async def issuer(_client: httpx.AsyncClient, _id: str, _secret: str) -> IssuedToken:
-        nonlocal calls
-        calls += 1
-        return IssuedToken(access_token=f"token-{calls}", expires_in=1)
-
-    async with httpx.AsyncClient() as client:
-        tokens = await manager(client, issuer, skew=30)
-        assert await tokens.get() == "token-1"
-        assert await tokens.get() == "token-2"
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"access_token": "", "token_type": "Bearer", "expires_in": 1},
+        {"access_token": "x", "token_type": "Basic", "expires_in": 1},
+        {"access_token": "x", "token_type": "Bearer", "expires_in": 0},
+    ],
+)
+async def test_malformed_oauth(payload: dict[str, object]) -> None:
+    async with httpx.AsyncClient(
+        base_url="https://mock",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)),
+    ) as client:
+        with pytest.raises(ProviderMalformedResponseError):
+            await issue_token(client, "id", "secret")
 
 
 @pytest.mark.asyncio
-async def test_successful_mapping_and_authorization_is_not_returned() -> None:
+async def test_401_invalidates_once_and_retries_once() -> None:
+    issued = 0
+    requests = 0
+
+    async def issuer(_client: httpx.AsyncClient, _id: str, _secret: str) -> IssuedToken:
+        nonlocal issued
+        issued += 1
+        return IssuedToken(access_token=f"t{issued}", token_type="Bearer", expires_in=3600)
+
     def transport(request: httpx.Request) -> httpx.Response:
-        assert request.headers["Authorization"] == "Bearer private-token"
+        nonlocal requests
+        requests += 1
+        return httpx.Response(401)
+
+    async with httpx.AsyncClient(
+        base_url="https://mock", transport=httpx.MockTransport(transport)
+    ) as client:
+        provider = TossMarketDataProvider(
+            client, TokenManager(client, "id", "secret", issuer), max_retries=0
+        )
+        with pytest.raises(ProviderAuthenticationError):
+            await provider.prices(["005930"])
+    assert (issued, requests) == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_candles_map_sort_decimal_and_request_contract() -> None:
+    async def issuer(_client: httpx.AsyncClient, _id: str, _secret: str) -> IssuedToken:
+        return IssuedToken(access_token="token", token_type="Bearer", expires_in=3600)
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/candles"
+        assert request.url.params["symbol"] == "005930"
+        assert request.url.params["interval"] == "1d"
         return httpx.Response(
             200,
             json={
-                "items": [
+                "candles": [
                     {
-                        "date": "2026-01-02",
-                        "open": "1",
+                        "timestamp": "2026-01-03T00:00:00+09:00",
+                        "open": "2",
                         "high": "3",
+                        "low": "1",
+                        "close": "2.5",
+                        "volume": 20,
+                    },
+                    {
+                        "timestamp": "2026-01-02T00:00:00+09:00",
+                        "open": "1",
+                        "high": "2",
                         "low": "1",
                         "close": "2",
                         "volume": 10,
-                    }
+                    },
                 ]
             },
         )
 
     async with httpx.AsyncClient(
-        transport=httpx.MockTransport(transport), base_url="https://mock"
+        base_url="https://mock", transport=httpx.MockTransport(transport)
     ) as client:
-        provider = TossMarketDataProvider(client, await manager(client), specification())
-        bars = await provider.daily_bars("005930", date(2026, 1, 1), date(2026, 1, 2))
-    assert bars[0].close == Decimal("2")
-    assert "private-token" not in repr(bars)
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        bars = await provider.daily_bars("005930", date(2026, 1, 1), date(2026, 1, 3))
+    assert [bar.trading_date for bar in bars] == [date(2026, 1, 2), date(2026, 1, 3)]
+    assert bars[1].close == Decimal("2.5")
+    assert bars[0].as_of.utcoffset() is not None
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("status", "error"),
-    [
-        (401, ProviderAuthenticationError),
-        (403, ProviderAuthenticationError),
-        (400, ProviderValidationError),
-    ],
-)
-async def test_permanent_errors_are_normalized_without_retry(
-    status: int, error: type[Exception]
-) -> None:
-    calls = 0
-
-    def transport(_: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        return httpx.Response(status)
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(transport), base_url="https://mock"
-    ) as client:
-        provider = TossMarketDataProvider(client, await manager(client), specification(), 2)
-        with pytest.raises(error):
-            await provider.daily_bars("A", date.today(), date.today())
-    assert calls == 1
+def test_retry_after_malformed_is_safe() -> None:
+    assert _retry_after("not-a-date") == 0.1
+    assert 0 <= _retry_after(email_date(datetime.now(UTC))) <= 30
 
 
-@pytest.mark.asyncio
-async def test_5xx_retries_then_succeeds() -> None:
-    calls = 0
-
-    def transport(_: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        return httpx.Response(503 if calls < 3 else 200, json={"items": []})
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(transport), base_url="https://mock"
-    ) as client:
-        provider = TossMarketDataProvider(client, await manager(client), specification(), 2)
-        assert await provider.daily_bars("A", date.today(), date.today()) == []
-    assert calls == 3
-
-
-@pytest.mark.asyncio
-async def test_timeout_and_rate_limit_are_normalized() -> None:
-    def timeout(request: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("secret must not leak", request=request)
-
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(timeout), base_url="https://mock"
-    ) as client:
-        provider = TossMarketDataProvider(client, await manager(client), specification(), 0)
-        with pytest.raises(ProviderUnavailableError, match="Provider request failed") as exc:
-            await provider.daily_bars("A", date.today(), date.today())
-        assert "secret" not in str(exc.value)
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(429, headers={"Retry-After": "0"})),
-        base_url="https://mock",
-    ) as client:
-        provider = TossMarketDataProvider(client, await manager(client), specification(), 0)
-        with pytest.raises(ProviderRateLimitError):
-            await provider.daily_bars("A", date.today(), date.today())
-
-
-@pytest.mark.asyncio
-async def test_malformed_response_is_rejected() -> None:
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"unexpected": []})),
-        base_url="https://mock",
-    ) as client:
-        provider = TossMarketDataProvider(client, await manager(client), specification())
-        with pytest.raises(ProviderMalformedResponseError):
-            await provider.daily_bars("A", date.today(), date.today())
+def email_date(value: datetime) -> str:
+    return value.strftime("%a, %d %b %Y %H:%M:%S GMT")

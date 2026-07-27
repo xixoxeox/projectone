@@ -1,38 +1,91 @@
 from datetime import date
-from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Any
 
-import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from screener.config import get_settings
 from screener.modules.identity.presentation.dependencies import CurrentUser
-from screener.modules.market.application import BarsResult, MarketDataService
-from screener.modules.market.domain import ProviderError, ProviderStatus
-from screener.modules.market.infrastructure.toss import TossMarketDataProvider
+from screener.modules.market.application import BarsResult, MarketDataService, PricesResult
+from screener.modules.market.domain import (
+    InstrumentSnapshot,
+    ProviderAuthenticationError,
+    ProviderError,
+    ProviderForbiddenError,
+    ProviderNotFoundError,
+    ProviderRateLimitError,
+    ProviderStatus,
+    ProviderValidationError,
+    StockWarning,
+)
 
 router = APIRouter(tags=["market-data"])
 
 
-@lru_cache
-def get_market_data_service() -> MarketDataService:
-    settings = get_settings()
-    client = httpx.AsyncClient(
-        base_url=settings.toss_api_base_url,
-        timeout=httpx.Timeout(settings.toss_request_timeout_seconds),
-    )
-    # Official Toss paths, token payload, and response fields are not present in the
-    # approved project documents. Deliberately remain unconfigured rather than guessing.
-    provider = TossMarketDataProvider(client, None, None, settings.toss_max_retries)
-    return MarketDataService(provider)
+def get_market_data_service(request: Request) -> MarketDataService:
+    return request.app.state.market_data_service  # type: ignore[no-any-return]
 
 
 Service = Annotated[MarketDataService, Depends(get_market_data_service)]
 
 
+def _raise(exc: Exception) -> None:
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    assert isinstance(exc, ProviderError)
+    status = 502
+    if isinstance(exc, (ProviderValidationError,)):
+        status = 422
+    elif isinstance(exc, ProviderAuthenticationError):
+        status = 502
+    elif isinstance(exc, ProviderForbiddenError):
+        status = 503
+    elif isinstance(exc, ProviderNotFoundError):
+        status = 404
+    elif isinstance(exc, ProviderRateLimitError) or exc.retryable:
+        status = 503
+    detail: dict[str, Any] = {
+        "code": type(exc).__name__,
+        "message": str(exc),
+        "provider": exc.provider,
+    }
+    if exc.request_id:
+        detail["request_id"] = exc.request_id
+    if exc.provider_code:
+        detail["provider_code"] = exc.provider_code
+    raise HTTPException(status_code=status, detail=detail) from exc
+
+
 @router.get("/operations/providers/market-data", response_model=ProviderStatus)
 async def provider_status(_user: CurrentUser, service: Service) -> ProviderStatus:
     return await service.status()
+
+
+@router.get("/instruments/prices", response_model=PricesResult)
+async def prices(
+    symbols: Annotated[str, Query(min_length=1)], _user: CurrentUser, service: Service
+) -> PricesResult:
+    try:
+        return await service.prices(symbols.split(","))
+    except (ValueError, ProviderError) as exc:
+        _raise(exc)
+    raise AssertionError("unreachable")
+
+
+@router.get("/instruments/{symbol}", response_model=InstrumentSnapshot)
+async def instrument(symbol: str, _user: CurrentUser, service: Service) -> InstrumentSnapshot:
+    try:
+        return await service.instrument(symbol)
+    except (ValueError, ProviderError) as exc:
+        _raise(exc)
+    raise AssertionError("unreachable")
+
+
+@router.get("/instruments/{symbol}/warnings", response_model=list[StockWarning])
+async def warnings(symbol: str, _user: CurrentUser, service: Service) -> list[StockWarning]:
+    try:
+        return await service.warnings(symbol)
+    except (ValueError, ProviderError) as exc:
+        _raise(exc)
+    raise AssertionError("unreachable")
 
 
 @router.get("/instruments/{symbol}/bars", response_model=BarsResult)
@@ -45,11 +98,6 @@ async def daily_bars(
 ) -> BarsResult:
     try:
         return await service.daily_bars(symbol, start_date, end_date)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except ProviderError as exc:
-        status_code = 503 if exc.retryable or "unverified" in str(exc) else 502
-        raise HTTPException(
-            status_code=status_code,
-            detail={"code": type(exc).__name__, "message": str(exc), "provider": exc.provider},
-        ) from exc
+    except (ValueError, ProviderError) as exc:
+        _raise(exc)
+    raise AssertionError("unreachable")

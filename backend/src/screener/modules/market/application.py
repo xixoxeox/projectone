@@ -2,7 +2,14 @@ from datetime import UTC, date, datetime
 
 from pydantic import BaseModel
 
-from screener.modules.market.domain import DailyBar, MarketDataProvider, ProviderStatus
+from screener.modules.market.domain import (
+    DailyBar,
+    InstrumentSnapshot,
+    MarketDataProvider,
+    ProviderStatus,
+    QuoteSnapshot,
+    StockWarning,
+)
 
 
 class BarsResult(BaseModel):
@@ -14,6 +21,12 @@ class BarsResult(BaseModel):
     stale: bool
 
 
+class PricesResult(BaseModel):
+    quotes: list[QuoteSnapshot]
+    source: str
+    as_of: datetime
+
+
 class MarketDataService:
     MAX_RANGE_DAYS = 366
 
@@ -23,14 +36,22 @@ class MarketDataService:
     async def status(self) -> ProviderStatus:
         return await self.provider.status()
 
+    @staticmethod
+    def symbol(value: str) -> str:
+        value = value.strip().upper()
+        if not value or len(value) > 32 or not value.replace("-", "").isalnum():
+            raise ValueError("invalid instrument symbol")
+        return value
+
+    async def instrument(self, symbol: str) -> InstrumentSnapshot:
+        return await self.provider.instrument(self.symbol(symbol))
+
     async def daily_bars(self, symbol: str, start: date, end: date) -> BarsResult:
         if start > end:
             raise ValueError("start_date must not be after end_date")
         if (end - start).days > self.MAX_RANGE_DAYS:
             raise ValueError("date range must not exceed 366 days")
-        symbol = symbol.strip().upper()
-        if not symbol or len(symbol) > 32 or not symbol.replace("-", "").isalnum():
-            raise ValueError("invalid instrument symbol")
+        symbol = self.symbol(symbol)
         bars = await self.provider.daily_bars(symbol, start, end)
         now = datetime.now(UTC)
         as_of = max((bar.as_of for bar in bars), default=now)
@@ -41,3 +62,15 @@ class MarketDataService:
             as_of=as_of,
             stale=(now - as_of).total_seconds() > 86400,
         )
+
+    async def prices(self, symbols: list[str]) -> PricesResult:
+        clean = [self.symbol(symbol) for symbol in symbols]
+        quotes = await self.provider.prices(clean)
+        now = datetime.now(UTC)
+        as_of = max((quote.as_of for quote in quotes), default=now)
+        return PricesResult(
+            quotes=quotes, source=quotes[0].source if quotes else "toss", as_of=as_of
+        )
+
+    async def warnings(self, symbol: str) -> list[StockWarning]:
+        return await self.provider.warnings(self.symbol(symbol))

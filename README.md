@@ -1,5 +1,14 @@
 # Swing Trading Screener
 
+## Toss read-only market data
+
+Sprint 3 integrates the official Toss Securities Open API 1.2.4 for OAuth, daily
+candles, prices, stock master metadata, and warnings. Configuration and contract
+details are documented in [`docs/TOSS_API_INTEGRATION.md`](docs/TOSS_API_INTEGRATION.md).
+Development starts with an `unconfigured` provider when credentials are absent;
+production fails settings validation. Account and order functionality is intentionally
+excluded.
+
 KOSPI 스윙 트레이딩을 위한 모바일 우선 의사결정 지원 플랫폼입니다. **주문 및 자동매매 기능은 제공하지 않습니다.** Sprint 2는 공급자 중립 시장 데이터 계층과 읽기 전용 Toss 어댑터 기반을 추가합니다. 공식 Toss 계약이 저장소에 없어 라이브 경로/필드 매핑은 의도적으로 비활성화되어 있습니다.
 
 ## 구성
