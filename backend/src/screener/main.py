@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
+from screener.modules.market.presentation.router import router as market_router
 from screener.modules.operations.presentation.router import router as health_router
 from screener.shared.logging import configure_logging
 
@@ -35,3 +36,4 @@ async def request_id_middleware(request: Request, call_next):  # type: ignore[no
 
 app.include_router(auth_router, prefix=settings.api_base_path)
 app.include_router(health_router, prefix=settings.api_base_path)
+app.include_router(market_router, prefix=settings.api_base_path)

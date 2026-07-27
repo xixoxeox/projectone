@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     refresh_ttl_days: int = Field(default=14, ge=1, le=30)
     refresh_cookie_secure: bool = False
     cors_origins: list[str] = ["http://localhost:3000"]
+    market_data_provider: Literal["toss"] = "toss"
+    toss_api_base_url: str = "https://example.invalid"
+    toss_client_id: str | None = None
+    toss_client_secret: SecretStr | None = None
+    toss_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    toss_max_retries: int = Field(default=2, ge=0, le=5)
+    toss_token_expiry_skew_seconds: int = Field(default=30, ge=0, le=300)
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
@@ -32,6 +39,10 @@ class Settings(BaseSettings):
             self.jwt_signing_key + self.refresh_token_pepper
         ):
             raise ValueError("Production authentication secrets must be explicitly configured")
+        if self.app_env == "production" and (
+            not self.toss_client_id or not self.toss_client_secret
+        ):
+            raise ValueError("TOSS_CLIENT_ID and TOSS_CLIENT_SECRET are required in production")
         return self
 
 
