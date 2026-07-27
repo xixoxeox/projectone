@@ -3,7 +3,7 @@ import email.utils
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal
+from typing import Any, Never
 from urllib.parse import urlparse
 
 import httpx
@@ -345,7 +345,7 @@ class TossMarketDataProvider:
         return value
 
     @staticmethod
-    def _malformed(exc: Exception | None = None) -> Literal[False]:
+    def _malformed(exc: Exception | None = None) -> Never:
         error = ProviderMalformedResponseError("Malformed provider response", provider=PROVIDER)
         if exc:
             raise error from exc
