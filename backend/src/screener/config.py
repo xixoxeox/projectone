@@ -1,0 +1,40 @@
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    app_env: Literal["development", "test", "production"] = "development"
+    app_version: str = "0.1.0"
+    log_level: str = "INFO"
+    api_base_path: str = "/api/v1"
+    database_url: str = "postgresql+asyncpg://screener:screener@localhost:5432/screener"
+    jwt_signing_key: str = Field(
+        default="development-only-signing-key-change-me-32-chars", min_length=32
+    )
+    jwt_issuer: str = "swing-trading-screener"
+    jwt_audience: str = "swing-trading-screener-web"
+    jwt_access_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    refresh_token_pepper: str = Field(
+        default="development-only-refresh-pepper-change-me", min_length=32
+    )
+    refresh_ttl_days: int = Field(default=14, ge=1, le=30)
+    refresh_cookie_secure: bool = False
+    cors_origins: list[str] = ["http://localhost:3000"]
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        if self.app_env == "production" and "development-only" in (
+            self.jwt_signing_key + self.refresh_token_pepper
+        ):
+            raise ValueError("Production authentication secrets must be explicitly configured")
+        return self
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
