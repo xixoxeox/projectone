@@ -21,6 +21,7 @@ from screener.modules.market.sync import (
     SyncAlreadyRunningError,
     SyncCoordinator,
 )
+from screener.modules.notifications import build_notification_service
 from screener.modules.operations.presentation.router import router as health_router
 from screener.shared.database import SessionFactory
 from screener.shared.logging import configure_logging
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.token_manager = tokens
     app.state.market_data_provider = provider
     app.state.market_data_service = MarketDataService(provider)
+    app.state.notification_service = build_notification_service(settings, client)
     stock_sync = StockSyncService(SessionFactory, provider)
     bar_sync = DailyBarSyncService(
         SessionFactory, provider, settings.sync_history_years, settings.sync_batch_size

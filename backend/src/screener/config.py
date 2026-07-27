@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     sync_history_years: int = Field(default=3, ge=1, le=20)
     sync_batch_size: int = Field(default=500, ge=10, le=5000)
+    notification_enabled: bool = False
+    notification_provider: Literal["slack"] = "slack"
+    slack_webhook_url: SecretStr | None = None
+    slack_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    slack_max_retries: int = Field(default=3, ge=1, le=3)
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
@@ -46,6 +51,14 @@ class Settings(BaseSettings):
             not self.toss_client_id or not self.toss_client_secret
         ):
             raise ValueError("TOSS_CLIENT_ID and TOSS_CLIENT_SECRET are required in production")
+        if self.notification_enabled and self.notification_provider == "slack":
+            if self.slack_webhook_url is None:
+                raise ValueError(
+                    "SLACK_WEBHOOK_URL is required when Slack notifications are enabled"
+                )
+            url = self.slack_webhook_url.get_secret_value()
+            if not url.startswith("https://hooks.slack.com/services/"):
+                raise ValueError("SLACK_WEBHOOK_URL must be a Slack Incoming Webhook URL")
         return self
 
 
