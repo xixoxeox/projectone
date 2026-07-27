@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         CandidateScanner(ScreeningEngine(BreakoutStrategy())),
         CandidateRanker(),
         settings.watchlist_job_timezone,
+        settings.watchlist_pipeline_stale_after_seconds,
     )
     app.state.daily_watchlist_pipeline = pipeline
     scheduler = build_scheduler(pipeline, settings)

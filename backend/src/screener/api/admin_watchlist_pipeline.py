@@ -52,8 +52,8 @@ async def run(
     body: RunRequest | None = None,
 ) -> PipelineResult:
     result = await pipeline.run(None if body is None else body.trading_date)
-    if result.skipped_reason == "already_running_or_completed":
-        raise HTTPException(409, "A run is already active or this date is complete")
+    if result.skipped_reason == "already_running":
+        raise HTTPException(409, "A run is already active")
     if result.status == "failed":
         raise HTTPException(500, detail={"error_code": result.error_code})
     return result

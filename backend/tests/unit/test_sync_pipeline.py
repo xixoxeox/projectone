@@ -236,10 +236,10 @@ async def test_same_job_cannot_run_concurrently(sessions: async_sessionmaker[Asy
 def test_scheduler_registration_and_test_environment_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scheduler = build_scheduler(Mock(), Mock())
-    jobs = {job.id: job for job in scheduler.get_jobs()}
-    assert set(jobs) == {"stock_master", "daily_bars"}
-    assert all(job.coalesce and job.max_instances == 1 for job in jobs.values())
+    scheduler = build_scheduler(Mock(), Settings())
+    jobs = scheduler.get_jobs()
+    assert [job.id for job in jobs] == ["daily-watchlist-pipeline"]
+    assert jobs[0].coalesce and jobs[0].max_instances == 1
     assert not scheduler.running
     monkeypatch.setattr("screener.main.settings", Settings(app_env="test"))
     assert not should_start_scheduler()
