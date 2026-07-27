@@ -3,7 +3,7 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0004_watchlist_pipeline_executions"
+revision = "0004_watchlist_pipeline_exec"
 down_revision = "0003_watchlist_entries"
 branch_labels = None
 depends_on = None
