@@ -22,7 +22,7 @@ class IndicatorSnapshot(BaseModel):
 
 
 class ScreeningResult(BaseModel):
-    """Strategy-neutral result contract for future screening implementations."""
+    """Strategy-neutral result for evaluating one symbol."""
 
     symbol: str
     passed: bool
