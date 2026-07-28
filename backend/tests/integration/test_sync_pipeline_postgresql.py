@@ -126,17 +126,20 @@ async def test_incremental_sync_bootstrap_and_latest_date(
                 Stock(
                     symbol="000002", name="Existing", market="KOSPI", currency="KRW", country="KR"
                 ),
-                DailyBarRecord(
-                    symbol="000002",
-                    trading_date=date.today() - timedelta(days=2),
-                    open=1,
-                    high=1,
-                    low=1,
-                    close=1,
-                    volume=1,
-                    source="offline",
-                ),
             ]
+        )
+        await session.flush()
+        session.add(
+            DailyBarRecord(
+                symbol="000002",
+                trading_date=date.today() - timedelta(days=2),
+                open=1,
+                high=1,
+                low=1,
+                close=1,
+                volume=1,
+                source="offline",
+            )
         )
         await session.commit()
         service = DailyBarSyncService(postgres_session_factory, provider, history_years=3)
