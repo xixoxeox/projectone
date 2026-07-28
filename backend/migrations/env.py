@@ -5,6 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from screener.config import get_settings
+from screener.modules.backtest import models as backtest_models  # noqa: F401
 from screener.modules.identity.infrastructure import models  # noqa: F401
 from screener.modules.market.infrastructure import models as market_models  # noqa: F401
 from screener.shared.database import Base
