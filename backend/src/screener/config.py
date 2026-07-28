@@ -32,7 +32,10 @@ class Settings(BaseSettings):
     toss_request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     toss_max_retries: int = Field(default=2, ge=0, le=5)
     toss_token_expiry_skew_seconds: int = Field(default=30, ge=0, le=300)
-    scheduler_enabled: bool = True
+    scheduler_enabled: bool = False
+    watchlist_pipeline_hour: int = Field(default=18, ge=0, le=23)
+    watchlist_pipeline_minute: int = Field(default=10, ge=0, le=59)
+    pipeline_stale_after_minutes: int = Field(default=60, ge=1, le=1440)
     sync_history_years: int = Field(default=3, ge=1, le=20)
     sync_batch_size: int = Field(default=500, ge=10, le=5000)
     notification_enabled: bool = False

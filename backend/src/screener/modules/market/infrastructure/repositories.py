@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Executable
 
 from screener.modules.market.domain import DailyBar, InstrumentSnapshot
-from screener.modules.market.infrastructure.models import DailyBarRecord, Stock, SyncJob, SyncJobRun
+from screener.modules.market.infrastructure.models import (
+    DailyBarRecord,
+    Stock,
+    SyncJob,
+    SyncJobRun,
+)
 
 
 @dataclass(frozen=True)

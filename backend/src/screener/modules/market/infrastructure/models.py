@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -98,3 +100,26 @@ class SyncJobRun(Base):
     skipped_rows: Mapped[int] = mapped_column(default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
     job: Mapped[SyncJob] = relationship(back_populates="runs")
+
+
+class WatchlistPipelineExecution(Base):
+    """Durable ownership and outcome record for a daily watchlist run."""
+
+    __tablename__ = "watchlist_pipeline_executions"
+    __table_args__ = (
+        UniqueConstraint("trading_date", "owner_id", name="uq_watchlist_pipeline_execution_owner"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    trading_date: Mapped[date] = mapped_column(Date, index=True)
+    trigger_type: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    owner_id: Mapped[UUID] = mapped_column(Uuid)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    candidate_count: Mapped[int] = mapped_column(default=0)
+    persisted_count: Mapped[int] = mapped_column(default=0)
+    stage: Mapped[str | None] = mapped_column(String(30))
+    error_code: Mapped[str | None] = mapped_column(String(255))
+    recovered_execution_id: Mapped[UUID | None] = mapped_column(Uuid)

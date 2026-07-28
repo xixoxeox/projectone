@@ -13,8 +13,12 @@ class TriggerType(StrEnum):
 
 
 class ExecutionStatus(StrEnum):
+    RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    RECOVERED = "recovered"
+    ALREADY_RUNNING = "already_running"
+    ALREADY_SUCCEEDED = "already_succeeded"
 
 
 class PipelineStage(StrEnum):
@@ -42,4 +46,4 @@ class PipelineResult:
 
     @property
     def succeeded(self) -> bool:
-        return self.status is ExecutionStatus.SUCCEEDED
+        return self.status in {ExecutionStatus.SUCCEEDED, ExecutionStatus.ALREADY_SUCCEEDED}

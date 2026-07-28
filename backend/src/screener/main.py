@@ -1,12 +1,14 @@
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import timedelta
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from screener.api.admin_watchlist_pipeline import router as admin_watchlist_pipeline_router
 from screener.api.watchlist.router import router as watchlist_router
 from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
@@ -75,10 +77,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         IndicatorService(),
         CandidateScanner(ScreeningEngine(BreakoutStrategy())),
         CandidateRanker(),
+        timedelta(minutes=settings.pipeline_stale_after_minutes),
     )
     publishing_pipeline = NotificationPublishingPipeline(daily_pipeline.run, notification_service)
     app.state.notification_publishing_pipeline = publishing_pipeline
-    scheduler = build_scheduler(stock_sync, bar_sync, publishing_pipeline)
+    scheduler = build_scheduler(
+        stock_sync,
+        bar_sync,
+        publishing_pipeline,
+        watchlist_hour=settings.watchlist_pipeline_hour,
+        watchlist_minute=settings.watchlist_pipeline_minute,
+    )
     app.state.scheduler = scheduler
     if should_start_scheduler():
         scheduler.start()
@@ -125,4 +134,5 @@ app.include_router(auth_router, prefix=settings.api_base_path)
 app.include_router(health_router, prefix=settings.api_base_path)
 app.include_router(market_router, prefix=settings.api_base_path)
 app.include_router(admin_sync_router, prefix=settings.api_base_path)
+app.include_router(admin_watchlist_pipeline_router, prefix=settings.api_base_path)
 app.include_router(watchlist_router, prefix=settings.api_base_path)
