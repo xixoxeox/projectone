@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import UUID
 
 import httpx
 import pytest
@@ -6,12 +7,14 @@ from pydantic import ValidationError
 
 from screener.config import Settings
 from screener.modules.notifications import (
+    ExecutionStatus,
     NotificationPublishingPipeline,
     NotificationService,
     NullNotificationProvider,
     PipelineFailedEvent,
     PipelineRecoveredEvent,
     PipelineResult,
+    PipelineStage,
     PipelineSucceededEvent,
     SlackNotificationProvider,
     TriggerType,
@@ -29,7 +32,7 @@ def anyio_backend() -> str:
 def success_event() -> PipelineSucceededEvent:
     return PipelineSucceededEvent(
         trading_date=date(2026, 7, 28),
-        execution_id="exec-1",
+        execution_id=UUID("00000000-0000-0000-0000-000000000001"),
         trigger_type=TriggerType.SCHEDULED,
         candidate_count=18,
         persisted_count=18,
@@ -60,7 +63,7 @@ def test_slack_formats_structured_success_event() -> None:
     assert "2026-07-28" in message
     assert "18" in message
     assert "24.2 sec" in message
-    assert "exec-1" in message
+    assert "00000000-0000-0000-0000-000000000001" in message
 
 
 @pytest.mark.anyio
@@ -127,13 +130,15 @@ class RaisingProvider:
 
 @pytest.mark.anyio
 async def test_notification_exception_does_not_fail_pipeline() -> None:
-    expected = PipelineResult(date(2026, 7, 28), "exec-1", TriggerType.SCHEDULED, True)
+    expected = PipelineResult(
+        date(2026, 7, 28), UUID(int=1), TriggerType.SCHEDULED, ExecutionStatus.SUCCEEDED
+    )
 
-    async def pipeline() -> PipelineResult:
+    async def pipeline(_: TriggerType) -> PipelineResult:
         return expected
 
     wrapper = NotificationPublishingPipeline(pipeline, NotificationService(RaisingProvider()))
-    assert await wrapper.run() is expected
+    assert await wrapper.run(TriggerType.SCHEDULED) is expected
 
 
 class RecordingProvider:
@@ -151,16 +156,18 @@ class RecordingProvider:
     ("result", "event_types"),
     [
         (
-            PipelineResult(date(2026, 7, 28), "new", TriggerType.SCHEDULED, True),
+            PipelineResult(
+                date(2026, 7, 28), UUID(int=2), TriggerType.SCHEDULED, ExecutionStatus.SUCCEEDED
+            ),
             [PipelineSucceededEvent],
         ),
         (
             PipelineResult(
                 date(2026, 7, 28),
-                "new",
+                UUID(int=2),
                 TriggerType.SCHEDULED,
-                False,
-                stage="ranking",
+                ExecutionStatus.FAILED,
+                stage=PipelineStage.RANKING,
                 error_code="ranking_failed",
             ),
             [PipelineFailedEvent],
@@ -168,10 +175,10 @@ class RecordingProvider:
         (
             PipelineResult(
                 date(2026, 7, 28),
-                "new",
+                UUID(int=2),
                 TriggerType.SCHEDULED,
-                True,
-                recovered_execution_id="stale",
+                ExecutionStatus.SUCCEEDED,
+                recovered_execution_id=UUID(int=1),
             ),
             [PipelineRecoveredEvent, PipelineSucceededEvent],
         ),
@@ -182,10 +189,12 @@ async def test_pipeline_publishes_outcome_events(
 ) -> None:
     provider = RecordingProvider()
 
-    async def pipeline() -> PipelineResult:
+    async def pipeline(_: TriggerType) -> PipelineResult:
         return result
 
-    returned = await NotificationPublishingPipeline(pipeline, NotificationService(provider)).run()
+    returned = await NotificationPublishingPipeline(pipeline, NotificationService(provider)).run(
+        result.trigger_type
+    )
     assert returned is result
     assert [type(event) for event in provider.events] == event_types
 
@@ -208,3 +217,13 @@ def test_settings_validate_retry_and_timeout_bounds() -> None:
         Settings(slack_max_retries=4)
     with pytest.raises(ValidationError):
         Settings(slack_timeout_seconds=0)
+
+
+def test_notifications_reuse_pipeline_domain_models() -> None:
+    from screener.modules.market.pipeline.models import (
+        PipelineResult as MarketPipelineResult,
+    )
+    from screener.modules.market.pipeline.models import TriggerType as MarketTriggerType
+
+    assert PipelineResult is MarketPipelineResult
+    assert TriggerType is MarketTriggerType

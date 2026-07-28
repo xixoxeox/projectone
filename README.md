@@ -76,7 +76,8 @@ cd frontend && npm run lint && npm run typecheck && npm test && npm run build
 
 Sprint 4 persists the KOSPI stock master and provider-neutral daily OHLCV bars. Apply
 `alembic upgrade head`, then enable `SCHEDULER_ENABLED` (disabled automatically when
-`APP_ENV=test`). The Asia/Seoul scheduler refreshes stocks at 06:00 and bars at 18:00.
+`APP_ENV=test`). The Asia/Seoul scheduler refreshes stocks at 06:00, refreshes bars at
+18:00, and generates the notification-wrapped daily watchlist from persisted data at 18:10.
 Administrators can use `POST /api/v1/admin/sync/{stocks,daily-bars,all}` and
 `GET /api/v1/admin/sync/{status,history}` with an administrator bearer token. New symbols
 receive `SYNC_HISTORY_YEARS` (three by default); existing symbols resume after their latest bar.

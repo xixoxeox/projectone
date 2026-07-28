@@ -1,21 +1,17 @@
 """Structured domain events emitted by watchlist execution boundaries."""
 
 from datetime import UTC, date, datetime
-from enum import StrEnum
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-
-class TriggerType(StrEnum):
-    SCHEDULED = "scheduled"
-    MANUAL = "manual"
-    RECOVERY = "recovery"
+from screener.modules.market.pipeline.models import PipelineStage, TriggerType
 
 
 class EventBase(BaseModel):
     trading_date: date
-    execution_id: str = Field(min_length=1)
+    execution_id: UUID
     trigger_type: TriggerType
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -31,7 +27,7 @@ class PipelineSucceededEvent(EventBase):
 class PipelineFailedEvent(EventBase):
     event_type: Literal["pipeline_failed"] = "pipeline_failed"
     status: Literal["failed"] = "failed"
-    stage: str = Field(min_length=1)
+    stage: PipelineStage
     error_code: str = Field(min_length=1)
     duration_seconds: float = Field(ge=0)
 
@@ -39,7 +35,7 @@ class PipelineFailedEvent(EventBase):
 class PipelineRecoveredEvent(EventBase):
     event_type: Literal["pipeline_recovered"] = "pipeline_recovered"
     status: Literal["recovered"] = "recovered"
-    recovered_execution_id: str = Field(min_length=1)
+    recovered_execution_id: UUID
 
 
 class PipelineManualRunEvent(EventBase):

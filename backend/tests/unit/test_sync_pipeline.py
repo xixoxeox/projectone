@@ -17,7 +17,10 @@ from screener.modules.identity.presentation.dependencies import get_current_user
 from screener.modules.market.domain import DailyBar, InstrumentSnapshot
 from screener.modules.market.infrastructure.models import DailyBarRecord, Stock, SyncJobRun
 from screener.modules.market.infrastructure.repositories import DailyBarRepository, StockRepository
-from screener.modules.market.presentation.admin_router import coordinator, router
+from screener.modules.market.presentation.admin_router import (
+    coordinator,
+    router,
+)
 from screener.modules.market.scheduler import build_scheduler
 from screener.modules.market.sync import (
     DailyBarSyncService,
@@ -236,10 +239,27 @@ async def test_same_job_cannot_run_concurrently(sessions: async_sessionmaker[Asy
 def test_scheduler_registration_and_test_environment_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scheduler = build_scheduler(Mock(), Mock())
+    stocks = Mock()
+    bars = Mock()
+    pipeline = Mock()
+    scheduler = build_scheduler(stocks, bars, pipeline)
     jobs = {job.id: job for job in scheduler.get_jobs()}
-    assert set(jobs) == {"stock_master", "daily_bars"}
+    assert set(jobs) == {"stock_master", "daily_bars", "daily_watchlist"}
     assert all(job.coalesce and job.max_instances == 1 for job in jobs.values())
+    assert jobs["stock_master"].func is stocks.run
+    assert jobs["daily_bars"].func is bars.run
+    assert (
+        jobs["stock_master"].trigger.fields[5].expressions[0].first,
+        jobs["stock_master"].trigger.fields[6].expressions[0].first,
+    ) == (6, 0)
+    assert (
+        jobs["daily_bars"].trigger.fields[5].expressions[0].first,
+        jobs["daily_bars"].trigger.fields[6].expressions[0].first,
+    ) == (18, 0)
+    assert (
+        jobs["daily_watchlist"].trigger.fields[5].expressions[0].first,
+        jobs["daily_watchlist"].trigger.fields[6].expressions[0].first,
+    ) == (18, 10)
     assert not scheduler.running
     monkeypatch.setattr("screener.main.settings", Settings(app_env="test"))
     assert not should_start_scheduler()
@@ -251,6 +271,7 @@ def test_scheduler_registration_and_test_environment_policy(
         ("post", "/api/v1/admin/sync/stocks"),
         ("post", "/api/v1/admin/sync/daily-bars"),
         ("post", "/api/v1/admin/sync/all"),
+        ("post", "/api/v1/admin/sync/watchlist/run"),
         ("get", "/api/v1/admin/sync/status"),
         ("get", "/api/v1/admin/sync/history"),
     ],

@@ -1,33 +1,15 @@
 """Application-boundary adapter from pipeline outcomes to notification events."""
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import date
 
+from screener.modules.market.pipeline.models import PipelineResult, PipelineStage, TriggerType
 from screener.modules.notifications.events import (
     NotificationEvent,
     PipelineFailedEvent,
     PipelineRecoveredEvent,
     PipelineSucceededEvent,
-    TriggerType,
 )
 from screener.modules.notifications.service import NotificationService
-
-
-@dataclass(frozen=True)
-class PipelineResult:
-    """Transport-neutral outcome returned by a daily watchlist pipeline."""
-
-    trading_date: date
-    execution_id: str
-    trigger_type: TriggerType
-    succeeded: bool
-    candidate_count: int = 0
-    persisted_count: int = 0
-    duration_seconds: float = 0
-    stage: str | None = None
-    error_code: str | None = None
-    recovered_execution_id: str | None = None
 
 
 class NotificationPublishingPipeline:
@@ -35,14 +17,14 @@ class NotificationPublishingPipeline:
 
     def __init__(
         self,
-        run_pipeline: Callable[[], Awaitable[PipelineResult]],
+        run_pipeline: Callable[[TriggerType], Awaitable[PipelineResult]],
         notifications: NotificationService,
     ) -> None:
         self._run_pipeline = run_pipeline
         self._notifications = notifications
 
-    async def run(self) -> PipelineResult:
-        result = await self._run_pipeline()
+    async def run(self, trigger_type: TriggerType) -> PipelineResult:
+        result = await self._run_pipeline(trigger_type)
         if result.recovered_execution_id is not None:
             await self._notifications.publish(
                 PipelineRecoveredEvent(
@@ -66,7 +48,7 @@ class NotificationPublishingPipeline:
                 trading_date=result.trading_date,
                 execution_id=result.execution_id,
                 trigger_type=result.trigger_type,
-                stage=result.stage or "unknown",
+                stage=result.stage or PipelineStage.UNKNOWN,
                 error_code=result.error_code or "pipeline_failed",
                 duration_seconds=result.duration_seconds,
             )
@@ -74,4 +56,4 @@ class NotificationPublishingPipeline:
         return result
 
 
-__all__ = ["NotificationPublishingPipeline", "PipelineResult"]
+__all__ = ["NotificationPublishingPipeline"]

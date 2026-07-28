@@ -5,19 +5,38 @@
 Notifications are an application-boundary concern. The dependency direction is:
 
 ```text
+Scheduler (18:10 Asia/Seoul) / Manual REST API
+          │
+          ▼
+NotificationPublishingPipeline
+          │
+          ▼
 DailyWatchlistPipeline
-  -> PipelineResult
-  -> NotificationPublishingPipeline
-  -> NotificationEvent
-  -> NotificationService
-  -> NotificationProvider
-  -> SlackNotificationProvider
-  -> Slack Incoming Webhook
+          │
+          ▼
+PipelineResult
+          │
+          ▼
+NotificationService
+          │
+          ▼
+SlackNotificationProvider
 ```
+
+`PipelineResult`, `TriggerType`, `PipelineStage`, and `ExecutionStatus` are the canonical types from `market.pipeline.models`; the notification layer does not define parallel transport models. Execution IDs remain UUIDs until Slack formatting.
 
 The pipeline returns structured state and never imports Slack code. The boundary adapter maps an outcome to a strongly typed success or failure event and, when applicable, emits a stale-execution recovery event first. `NotificationService` owns failure isolation and structured delivery logs. Formatting and HTTP transport belong exclusively to the selected provider.
 
-The application composition root constructs one provider and injects its service. It reuses the application's lifespan-scoped `httpx.AsyncClient`; no client or connection pool is created per message.
+The application composition root constructs one `NotificationPublishingPipeline` singleton. Both APScheduler and the manual REST dependency reuse that boundary; neither constructs or invokes the underlying daily pipeline directly. The notification service reuses the application's lifespan-scoped `httpx.AsyncClient`; no client or connection pool is created per message.
+
+## Production schedule
+
+- **06:00 Asia/Seoul:** `stock_master` refreshes the persisted active-stock universe.
+- **18:00 Asia/Seoul:** `daily_bars` refreshes persisted daily market data.
+- **18:10 Asia/Seoul:** `daily_watchlist` executes `NotificationPublishingPipeline`, generates the watchlist from persisted synchronized data, and publishes its outcome.
+
+`DailyWatchlistPipeline` never synchronizes market data. Scheduled and manual watchlist generation both consume the latest persisted stocks and bars; a manual run does not implicitly refresh either dataset.
+The raw `/admin/sync/stocks`, `/admin/sync/daily-bars`, and `/admin/sync/all` endpoints remain synchronization-only operations and do not generate watchlist notifications.
 
 ## Providers and events
 
