@@ -1,9 +1,14 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from screener.api.backtests.dependencies import BacktestServiceDependency
-from screener.api.backtests.schemas import BacktestCreateRequest, BacktestResponse
+from screener.api.backtests.schemas import (
+    BacktestCreateRequest,
+    BacktestResponse,
+    BacktestTradeResponse,
+)
+from screener.modules.backtest.domain import BacktestExitReason
 from screener.modules.backtest.service import BacktestNotFoundError, BacktestRangeError
 
 router = APIRouter(prefix="/backtests", tags=["backtests"])
@@ -25,6 +30,22 @@ async def create_backtest(
     except (ValueError, BacktestRangeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return BacktestResponse.model_validate(run)
+
+
+@router.get("/{run_id}/trades", response_model=list[BacktestTradeResponse])
+async def list_backtest_trades(
+    run_id: UUID,
+    service: BacktestServiceDependency,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    symbol: str | None = None,
+    exit_reason: BacktestExitReason | None = None,
+) -> list[BacktestTradeResponse]:
+    try:
+        trades = await service.list_trades(run_id, limit, offset, symbol, exit_reason)
+    except BacktestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Backtest run not found") from exc
+    return [BacktestTradeResponse.model_validate(trade) for trade in trades]
 
 
 @router.get("", response_model=list[BacktestResponse])

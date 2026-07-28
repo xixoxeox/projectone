@@ -7,7 +7,8 @@ from screener.config import get_settings
 from screener.modules.backtest import (
     BacktestRepository,
     BacktestService,
-    PlaceholderBacktestExecutor,
+    DatabaseBacktestExecutor,
+    WatchlistEntryStrategy,
 )
 from screener.shared.database import get_db_session
 
@@ -17,7 +18,7 @@ def get_backtest_service(
 ) -> BacktestService:
     return BacktestService(
         BacktestRepository(session),
-        PlaceholderBacktestExecutor(),
+        DatabaseBacktestExecutor(session, WatchlistEntryStrategy(session)),
         get_settings().backtest_max_range_days,
     )
 

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -10,6 +11,36 @@ class BacktestStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class BacktestExitReason(StrEnum):
+    STOP_LOSS = "stop_loss"
+    TAKE_PROFIT = "take_profit"
+    MAX_HOLDING_DAYS = "max_holding_days"
+    END_OF_PERIOD = "end_of_period"
+    NO_ENTRY_BAR = "no_entry_bar"
+    INSUFFICIENT_POSITION_SIZE = "insufficient_position_size"
+
+
+@dataclass(frozen=True, slots=True)
+class BacktestTrade:
+    id: UUID
+    run_id: UUID
+    symbol: str
+    signal_date: date
+    entry_date: date
+    entry_price: Decimal
+    quantity: int
+    exit_date: date
+    exit_price: Decimal
+    exit_reason: BacktestExitReason
+    gross_pnl: Decimal
+    commission: Decimal
+    tax: Decimal
+    slippage_cost: Decimal
+    net_pnl: Decimal
+    holding_days: int
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class InvalidBacktestTransition(ValueError):

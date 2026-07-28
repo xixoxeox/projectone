@@ -1,6 +1,9 @@
 """Contract tests for the backtest REST API."""
 
+from __future__ import annotations
+
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -8,13 +11,14 @@ from fastapi.testclient import TestClient
 
 from screener.api.backtests.dependencies import get_backtest_service
 from screener.main import app
-from screener.modules.backtest import BacktestRun
+from screener.modules.backtest import BacktestExitReason, BacktestRun, BacktestTrade
 from screener.modules.backtest.service import BacktestNotFoundError, BacktestRangeError
 
 
 class FakeService:
     def __init__(self) -> None:
         self.runs: dict[UUID, BacktestRun] = {}
+        self.trades: dict[UUID, list[BacktestTrade]] = {}
 
     async def create(
         self,
@@ -32,7 +36,7 @@ class FakeService:
                 strategy_name, start_date, end_date, strategy_version, parameters, data_as_of
             )
             .start()
-            .complete({})
+            .complete({"entered_trades": 2, "net_profit": "1250.00000000"})
         )
         self.runs[run.id] = run
         return run
@@ -45,6 +49,23 @@ class FakeService:
 
     async def list(self) -> list[BacktestRun]:
         return list(self.runs.values())
+
+    async def list_trades(
+        self,
+        run_id: UUID,
+        limit: int,
+        offset: int,
+        symbol: str | None,
+        exit_reason: BacktestExitReason | None,
+    ) -> list[BacktestTrade]:
+        if run_id not in self.runs:
+            raise BacktestNotFoundError(str(run_id))
+        trades = self.trades.get(run_id, [])
+        if symbol is not None:
+            trades = [trade for trade in trades if trade.symbol == symbol]
+        if exit_reason is not None:
+            trades = [trade for trade in trades if trade.exit_reason == exit_reason]
+        return trades[offset : offset + limit]
 
 
 @pytest.fixture
@@ -63,9 +84,9 @@ def client(service: FakeService) -> TestClient:
 
 def payload() -> dict[str, object]:
     return {
-        "strategy_name": " breakout ",
-        "strategy_version": " v2 ",
-        "parameters": {"lookback": 20, "filters": ["volume"]},
+        "strategy_name": "watchlist_entry",
+        "strategy_version": "1",
+        "parameters": {},
         "start_date": "2026-01-01",
         "end_date": "2026-01-20",
         "data_as_of": "2026-01-21T09:00:00+09:00",
@@ -76,10 +97,11 @@ def test_create_get_list_and_parameter_persistence(client: TestClient) -> None:
     created = client.post("/api/v1/backtests", json=payload())
     assert created.status_code == 201
     body = created.json()
-    assert body["strategy_name"] == "breakout"
-    assert body["strategy_version"] == "v2"
-    assert body["parameters"] == {"lookback": 20, "filters": ["volume"]}
+    assert body["strategy_name"] == "watchlist_entry"
+    assert body["strategy_version"] == "1"
+    assert body["parameters"] == {}
     assert body["data_as_of"] == "2026-01-21T09:00:00+09:00"
+    assert body["result"] == {"entered_trades": 2, "net_profit": "1250.00000000"}
 
     assert client.get(f"/api/v1/backtests/{body['id']}").json() == body
     assert client.get("/api/v1/backtests").json() == [body]
@@ -90,7 +112,9 @@ def test_create_get_list_and_parameter_persistence(client: TestClient) -> None:
     [
         ({"start_date": "2026-02-01", "end_date": "2026-01-01"}, "start_date"),
         ({"end_date": "2026-03-01"}, "cannot exceed"),
-        ({"strategy_name": "   "}, "strategy_name"),
+        ({"strategy_name": "other"}, "strategy_name"),
+        ({"strategy_version": "2"}, "strategy_version"),
+        ({"parameters": {"position_size": 0}}, "position_size"),
         ({"data_as_of": "2026-01-21T09:00:00"}, "timezone-aware"),
     ],
 )
@@ -109,7 +133,63 @@ def test_missing_run_returns_404(client: TestClient) -> None:
     assert response.json() == {"detail": "Backtest run not found"}
 
 
+def trade(run_id: UUID, symbol: str, reason: BacktestExitReason, day: int) -> BacktestTrade:
+    return BacktestTrade(
+        uuid4(),
+        run_id,
+        symbol,
+        date(2026, 1, day),
+        date(2026, 1, day + 1),
+        Decimal("100.12345678"),
+        10,
+        date(2026, 1, day + 2),
+        Decimal("110.12345678"),
+        reason,
+        Decimal("100.00000000"),
+        Decimal("1.00000000"),
+        Decimal("2.00000000"),
+        Decimal("3.00000000"),
+        Decimal("94.00000000"),
+        1,
+    )
+
+
+def test_trades_endpoint_pagination_and_filters(client: TestClient, service: FakeService) -> None:
+    run_id = UUID(client.post("/api/v1/backtests", json=payload()).json()["id"])
+    service.trades[run_id] = [
+        trade(run_id, "005930", BacktestExitReason.TAKE_PROFIT, 1),
+        trade(run_id, "000660", BacktestExitReason.STOP_LOSS, 4),
+        trade(run_id, "005930", BacktestExitReason.END_OF_PERIOD, 7),
+    ]
+    page = client.get(f"/api/v1/backtests/{run_id}/trades?limit=1&offset=1")
+    assert page.status_code == 200
+    assert [item["symbol"] for item in page.json()] == ["000660"]
+    assert page.json()[0]["entry_price"] == "100.12345678"
+    by_symbol = client.get(f"/api/v1/backtests/{run_id}/trades?symbol=005930")
+    assert [item["symbol"] for item in by_symbol.json()] == ["005930", "005930"]
+    by_reason = client.get(f"/api/v1/backtests/{run_id}/trades?exit_reason=stop_loss")
+    assert [item["exit_reason"] for item in by_reason.json()] == ["stop_loss"]
+
+
+def test_unknown_run_trades_return_404(client: TestClient) -> None:
+    response = client.get(f"/api/v1/backtests/{uuid4()}/trades")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Backtest run not found"}
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=501", "offset=-1", "exit_reason=not_a_reason"])
+def test_invalid_trade_query_parameters_return_422(client: TestClient, query: str) -> None:
+    assert client.get(f"/api/v1/backtests/{uuid4()}/trades?{query}").status_code == 422
+
+
 def test_openapi_contains_all_backtest_routes(client: TestClient) -> None:
     paths = client.get("/openapi.json").json()["paths"]
     assert {"get", "post"} <= set(paths["/api/v1/backtests"])
     assert "get" in paths["/api/v1/backtests/{run_id}"]
+    assert "get" in paths["/api/v1/backtests/{run_id}/trades"]
+
+
+@pytest.mark.parametrize("version", [None, "1"])
+def test_supported_strategy_versions_succeed(client: TestClient, version: str | None) -> None:
+    response = client.post("/api/v1/backtests", json=payload() | {"strategy_version": version})
+    assert response.status_code == 201

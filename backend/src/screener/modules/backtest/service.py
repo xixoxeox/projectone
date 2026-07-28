@@ -1,9 +1,14 @@
+import builtins
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from screener.modules.backtest.domain import BacktestRun
-from screener.modules.backtest.executor import BacktestExecutor
+from screener.modules.backtest.domain import BacktestExitReason, BacktestRun, BacktestTrade
+from screener.modules.backtest.executor import (
+    BacktestExecutionError,
+    BacktestExecutor,
+    validate_strategy_contract,
+)
 from screener.modules.backtest.repository import BacktestRepository
 
 
@@ -32,6 +37,9 @@ class BacktestService:
         parameters: dict[str, Any] | None = None,
         data_as_of: datetime | None = None,
     ) -> BacktestRun:
+        strategy_name, strategy_version = validate_strategy_contract(
+            strategy_name, strategy_version
+        )
         if (end_date - start_date).days > self.max_range_days:
             raise BacktestRangeError(f"date range cannot exceed {self.max_range_days} days")
         run = BacktestRun.create(
@@ -43,7 +51,10 @@ class BacktestService:
         try:
             execution = await self.executor.execute(running)
         except Exception as exc:
-            failed = running.fail(str(exc), type(exc).__name__)
+            code = (
+                exc.failure_code if isinstance(exc, BacktestExecutionError) else "EXECUTION_FAILED"
+            )
+            failed = running.fail(str(exc), code)
             await self.repository.save(failed)
             return failed
         completed = running.complete(execution.metrics)
@@ -58,3 +69,14 @@ class BacktestService:
 
     async def list(self) -> list[BacktestRun]:
         return await self.repository.list()
+
+    async def list_trades(
+        self,
+        run_id: UUID,
+        limit: int,
+        offset: int,
+        symbol: str | None,
+        exit_reason: BacktestExitReason | None,
+    ) -> builtins.list[BacktestTrade]:
+        await self.get(run_id)
+        return await self.repository.list_trades(run_id, limit, offset, symbol, exit_reason)
