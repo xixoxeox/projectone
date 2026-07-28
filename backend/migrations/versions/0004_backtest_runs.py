@@ -2,6 +2,7 @@
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision = "0004_backtest_runs"
 down_revision = "0003_watchlist_entries"
@@ -15,14 +16,17 @@ def upgrade() -> None:
         "backtest_runs",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("strategy_name", sa.String(100), nullable=False),
+        sa.Column("strategy_version", sa.String(50), nullable=True),
         sa.Column("start_date", sa.Date(), nullable=False),
         sa.Column("end_date", sa.Date(), nullable=False),
-        sa.Column("parameters", sa.Text(), nullable=False),
+        sa.Column("parameters", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("data_as_of", sa.DateTime(timezone=True), nullable=True),
         sa.Column("status", status, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("failure_code", sa.String(100), nullable=True),
+        sa.Column("failure_message", sa.Text(), nullable=True),
         sa.CheckConstraint("start_date <= end_date", name="ck_backtest_runs_date_range"),
         sa.PrimaryKeyConstraint("id", name="pk_backtest_runs"),
     )

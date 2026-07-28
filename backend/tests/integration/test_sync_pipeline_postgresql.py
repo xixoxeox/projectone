@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from screener.config import Settings
 from screener.main import should_start_scheduler, sync_conflict_handler
@@ -25,7 +25,6 @@ from screener.modules.market.sync import (
     SyncAlreadyRunningError,
     SyncResult,
 )
-from screener.shared.database import Base
 
 
 class OfflineProvider:
@@ -46,16 +45,6 @@ class OfflineProvider:
         if self.future_bar:
             return [bar(trading_date=end + timedelta(days=1))]
         return []
-
-
-@pytest.fixture
-async def sessions() -> async_sessionmaker[AsyncSession]:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    yield factory
-    await engine.dispose()
 
 
 def snapshot(name: str = "Samsung") -> InstrumentSnapshot:
@@ -89,9 +78,9 @@ def bar(close: str = "11", trading_date: date = date(2026, 1, 2)) -> DailyBar:
 
 @pytest.mark.asyncio
 async def test_repository_upsert_insert_update_and_skip(
-    sessions: async_sessionmaker[AsyncSession],
+    postgres_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    async with sessions() as session:
+    async with postgres_session_factory() as session:
         stocks = StockRepository(session)
         assert (await stocks.upsert([snapshot()])).inserted == 1
         await session.commit()
@@ -127,30 +116,33 @@ async def test_empty_symbol_latest_dates_does_not_query() -> None:
 
 @pytest.mark.asyncio
 async def test_incremental_sync_bootstrap_and_latest_date(
-    sessions: async_sessionmaker[AsyncSession],
+    postgres_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     provider = OfflineProvider()
-    async with sessions() as session:
+    async with postgres_session_factory() as session:
         session.add_all(
             [
                 Stock(symbol="000001", name="New", market="KOSPI", currency="KRW", country="KR"),
                 Stock(
                     symbol="000002", name="Existing", market="KOSPI", currency="KRW", country="KR"
                 ),
-                DailyBarRecord(
-                    symbol="000002",
-                    trading_date=date.today() - timedelta(days=2),
-                    open=1,
-                    high=1,
-                    low=1,
-                    close=1,
-                    volume=1,
-                    source="offline",
-                ),
             ]
         )
+        await session.flush()
+        session.add(
+            DailyBarRecord(
+                symbol="000002",
+                trading_date=date.today() - timedelta(days=2),
+                open=1,
+                high=1,
+                low=1,
+                close=1,
+                volume=1,
+                source="offline",
+            )
+        )
         await session.commit()
-        service = DailyBarSyncService(sessions, provider, history_years=3)
+        service = DailyBarSyncService(postgres_session_factory, provider, history_years=3)
         await service._sync(session)
     requests_by_symbol: dict[str, list[tuple[date, date]]] = {}
     for symbol, start, end in provider.requests:
@@ -188,31 +180,33 @@ def test_daily_bar_validation_rejects_negative_and_invalid_ohlc() -> None:
 
 @pytest.mark.asyncio
 async def test_sync_rejects_future_trading_dates(
-    sessions: async_sessionmaker[AsyncSession],
+    postgres_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     provider = OfflineProvider()
     provider.future_bar = True
-    async with sessions() as session:
+    async with postgres_session_factory() as session:
         session.add(
             Stock(symbol="005930", name="Samsung", market="KOSPI", currency="KRW", country="KR")
         )
         await session.commit()
         with pytest.raises(ValueError, match="future trading date"):
-            await DailyBarSyncService(sessions, provider)._sync(session)
+            await DailyBarSyncService(postgres_session_factory, provider)._sync(session)
 
 
 @pytest.mark.asyncio
-async def test_sync_records_success_and_failure(sessions: async_sessionmaker[AsyncSession]) -> None:
+async def test_sync_records_success_and_failure(
+    postgres_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     provider = OfflineProvider()
     provider.release.set()
-    successful = StockSyncService(sessions, provider)
+    successful = StockSyncService(postgres_session_factory, provider)
     assert (await successful.run()).status == "succeeded"
     provider.failure = RuntimeError("offline failure")
-    failing = StockSyncService(sessions, provider)
+    failing = StockSyncService(postgres_session_factory, provider)
     with pytest.raises(RuntimeError, match="offline failure"):
         await failing.run()
     assert not failing._run_lock.locked()
-    async with sessions() as session:
+    async with postgres_session_factory() as session:
         statuses = [
             run.status
             for run in (await session.scalars(select(SyncJobRun).order_by(SyncJobRun.id))).all()
@@ -221,9 +215,11 @@ async def test_sync_records_success_and_failure(sessions: async_sessionmaker[Asy
 
 
 @pytest.mark.asyncio
-async def test_same_job_cannot_run_concurrently(sessions: async_sessionmaker[AsyncSession]) -> None:
+async def test_same_job_cannot_run_concurrently(
+    postgres_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     provider = OfflineProvider()
-    service = StockSyncService(sessions, provider)
+    service = StockSyncService(postgres_session_factory, provider)
     first = asyncio.create_task(service.run())
     await asyncio.sleep(0)
     with pytest.raises(SyncAlreadyRunningError):

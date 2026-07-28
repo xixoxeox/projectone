@@ -6,6 +6,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from screener.api.backtests.dependencies import BacktestServiceDependency
 from screener.api.backtests.schemas import BacktestResponse, CreateBacktestRequest
+from screener.modules.backtest import (
+    BacktestExecutionError,
+    BacktestNotFoundError,
+    InvalidBacktestRangeError,
+    InvalidBacktestTransitionError,
+)
 
 router = APIRouter(prefix="/backtests", tags=["backtests"])
 
@@ -14,9 +20,21 @@ router = APIRouter(prefix="/backtests", tags=["backtests"])
 async def create(
     request: CreateBacktestRequest, service: BacktestServiceDependency
 ) -> BacktestResponse:
-    run = await service.create(
-        request.strategy_name, request.start_date, request.end_date, request.parameters
-    )
+    try:
+        run = await service.create(
+            request.strategy_name,
+            request.strategy_version,
+            request.start_date,
+            request.end_date,
+            request.parameters,
+            request.data_as_of,
+        )
+    except InvalidBacktestRangeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except InvalidBacktestTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except BacktestExecutionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return BacktestResponse.from_run(run)
 
 
@@ -31,7 +49,8 @@ async def list_runs(
 
 @router.get("/{run_id}", response_model=BacktestResponse)
 async def get(run_id: UUID, service: BacktestServiceDependency) -> BacktestResponse:
-    run = await service.get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Backtest run not found")
+    try:
+        run = await service.get(run_id)
+    except BacktestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Backtest run not found") from exc
     return BacktestResponse.from_run(run)

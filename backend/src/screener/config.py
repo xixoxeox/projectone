@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     sync_history_years: int = Field(default=3, ge=1, le=20)
     sync_batch_size: int = Field(default=500, ge=10, le=5000)
+    backtest_max_range_days: int = Field(default=1825, ge=1)
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
