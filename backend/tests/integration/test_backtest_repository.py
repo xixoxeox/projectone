@@ -395,6 +395,7 @@ async def seed_bars(
                     low=Decimal(opening),
                     close=Decimal(close),
                     volume=100,
+                    source="test_fixture",
                 )
             )
     await session.flush()
