@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -98,3 +99,22 @@ class SyncJobRun(Base):
     skipped_rows: Mapped[int] = mapped_column(default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
     job: Mapped[SyncJob] = relationship(back_populates="runs")
+
+
+class WatchlistPipelineExecution(Base):
+    __tablename__ = "watchlist_pipeline_executions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    trading_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    trigger_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    stage: Mapped[str] = mapped_column(String(40), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    candidate_count: Mapped[int | None] = mapped_column(Integer)
+    persisted_count: Mapped[int | None] = mapped_column(Integer)
+    skipped_reason: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    error_detail: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

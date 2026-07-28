@@ -10,7 +10,9 @@ services:
   backend:
     build: ./backend
     env_file: .env
-    environment: {DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-screener}:${POSTGRES_PASSWORD:-screener}@db:5432/${POSTGRES_DB:-screener}}
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-screener}:${POSTGRES_PASSWORD:-screener}@db:5432/${POSTGRES_DB:-screener}
+      SCHEDULER_ENABLED: "false"
     ports: ["8000:8000"]
     depends_on: {db: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/live')"], interval: 10s, timeout: 5s, retries: 5}
@@ -19,4 +21,12 @@ services:
     environment: {NEXT_PUBLIC_API_BASE_PATH: ${NEXT_PUBLIC_API_BASE_PATH:-http://localhost:8000/api/v1}}
     ports: ["3000:3000"]
     depends_on: {backend: {condition: service_healthy}}
+  scheduler:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-screener}:${POSTGRES_PASSWORD:-screener}@db:5432/${POSTGRES_DB:-screener}
+      SCHEDULER_ENABLED: "true"
+    depends_on: {db: {condition: service_healthy}}
+    profiles: [scheduler]
 volumes: {postgres_data: {}}
