@@ -28,7 +28,14 @@ class SlackNotificationProvider:
                 )
                 response.raise_for_status()
                 return
-            except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError):
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if 400 <= status < 500 and status != 429:
+                    raise
+                if attempt == self.max_retries:
+                    raise
+                await asyncio.sleep(0.25 * (2**attempt))
+            except (httpx.TimeoutException, httpx.NetworkError):
                 if attempt == self.max_retries:
                     raise
                 await asyncio.sleep(0.25 * (2**attempt))

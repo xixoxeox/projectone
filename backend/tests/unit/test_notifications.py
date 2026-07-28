@@ -77,13 +77,34 @@ async def test_service_isolates_providers() -> None:
     succeeding.publish.assert_awaited_once_with(event)
 
 
-async def test_slack_retries_transient_failure() -> None:
+@pytest.mark.parametrize("status", [400, 403])
+async def test_slack_does_not_retry_permanent_client_error(status: int) -> None:
     attempts = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
         attempts += 1
-        return httpx.Response(503 if attempts == 1 else 200, request=request)
+        return httpx.Response(status, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SlackNotificationProvider(client, "https://hooks.slack.test/1", max_retries=2)
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider.publish(
+                NotificationEvent(
+                    type=NotificationEventType.WATCHLIST_PUBLISHED,
+                    trading_date=date(2026, 7, 28),
+                )
+            )
+    assert attempts == 1
+
+
+async def test_slack_retries_server_error_and_eventually_succeeds() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(500 if attempts == 1 else 200, request=request)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = SlackNotificationProvider(client, "https://hooks.slack.test/1", max_retries=1)
@@ -97,10 +118,36 @@ async def test_slack_retries_transient_failure() -> None:
     assert attempts == 2
 
 
+async def test_slack_retries_timeout_and_eventually_succeeds() -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SlackNotificationProvider(client, "https://hooks.slack.test/1", max_retries=1)
+        await provider.publish(
+            NotificationEvent(
+                type=NotificationEventType.WATCHLIST_PUBLISHED,
+                trading_date=date(2026, 7, 28),
+            )
+        )
+    assert attempts == 2
+
+
 async def test_slack_stops_after_retry_budget() -> None:
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda request: httpx.Response(500, request=request))
-    ) as client:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(500, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = SlackNotificationProvider(client, "https://hooks.slack.test/1", max_retries=1)
         with pytest.raises(httpx.HTTPStatusError):
             await provider.publish(
@@ -109,3 +156,4 @@ async def test_slack_stops_after_retry_budget() -> None:
                     trading_date=date(2026, 7, 28),
                 )
             )
+    assert attempts == 2
