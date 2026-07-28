@@ -3,13 +3,14 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from screener.config import Settings
-from screener.modules.market.pipeline import DailyWatchlistPipeline, TriggerType
+from screener.modules.market.pipeline import TriggerType
+from screener.modules.notifications.pipeline import PipelineRunner
 
 JOB_ID = "daily-watchlist-pipeline"
 logger = logging.getLogger(__name__)
 
 
-async def run_scheduled_pipeline(pipeline: DailyWatchlistPipeline) -> None:
+async def run_scheduled_pipeline(pipeline: PipelineRunner) -> None:
     result = await pipeline.run(trigger=TriggerType.SCHEDULED)
     logger.info(
         "scheduled_watchlist_outcome execution_id=%s trading_date=%s status=%s stage=%s",
@@ -20,7 +21,7 @@ async def run_scheduled_pipeline(pipeline: DailyWatchlistPipeline) -> None:
     )
 
 
-def build_scheduler(pipeline: DailyWatchlistPipeline, settings: Settings) -> AsyncIOScheduler:
+def build_scheduler(pipeline: PipelineRunner, settings: Settings) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=settings.watchlist_job_timezone)
     scheduler.add_job(
         run_scheduled_pipeline,

@@ -29,6 +29,11 @@ from screener.modules.market.sync import (
     SyncAlreadyRunningError,
     SyncCoordinator,
 )
+from screener.modules.notifications import (
+    NotificationPublishingPipeline,
+    NotificationService,
+    SlackNotificationProvider,
+)
 from screener.modules.operations.presentation.router import router as health_router
 from screener.shared.database import SessionFactory
 from screener.shared.logging import configure_logging
@@ -75,8 +80,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.watchlist_job_timezone,
         settings.watchlist_pipeline_stale_after_seconds,
     )
-    app.state.daily_watchlist_pipeline = pipeline
-    scheduler = build_scheduler(pipeline, settings)
+    notification_providers = []
+    if settings.slack_webhook_url:
+        notification_providers.append(
+            SlackNotificationProvider(
+                client,
+                settings.slack_webhook_url.get_secret_value(),
+                timeout_seconds=settings.notification_timeout_seconds,
+                max_retries=settings.notification_max_retries,
+            )
+        )
+    publishing_pipeline = NotificationPublishingPipeline(
+        pipeline, NotificationService(notification_providers)
+    )
+    app.state.daily_watchlist_pipeline = publishing_pipeline
+    scheduler = build_scheduler(publishing_pipeline, settings)
     app.state.scheduler = scheduler
     if should_start_scheduler():
         scheduler.start()
