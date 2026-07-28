@@ -36,6 +36,7 @@ The application composition root constructs one `NotificationPublishingPipeline`
 - **18:10 Asia/Seoul:** `daily_watchlist` executes `NotificationPublishingPipeline`, generates the watchlist from persisted synchronized data, and publishes its outcome.
 
 `DailyWatchlistPipeline` never synchronizes market data. Scheduled and manual watchlist generation both consume the latest persisted stocks and bars; a manual run does not implicitly refresh either dataset.
+The raw `/admin/sync/stocks`, `/admin/sync/daily-bars`, and `/admin/sync/all` endpoints remain synchronization-only operations and do not generate watchlist notifications.
 
 ## Providers and events
 

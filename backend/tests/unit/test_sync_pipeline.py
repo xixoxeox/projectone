@@ -246,6 +246,8 @@ def test_scheduler_registration_and_test_environment_policy(
     jobs = {job.id: job for job in scheduler.get_jobs()}
     assert set(jobs) == {"stock_master", "daily_bars", "daily_watchlist"}
     assert all(job.coalesce and job.max_instances == 1 for job in jobs.values())
+    assert jobs["stock_master"].func is stocks.run
+    assert jobs["daily_bars"].func is bars.run
     assert (
         jobs["stock_master"].trigger.fields[5].expressions[0].first,
         jobs["stock_master"].trigger.fields[6].expressions[0].first,

@@ -20,7 +20,7 @@ from screener.modules.market.watchlist import WatchlistRepository
 
 
 class DailyWatchlistPipeline:
-    """Synchronize, screen, rank, and persist one complete daily watchlist."""
+    """Screen, rank, and persist one watchlist from synchronized data."""
 
     def __init__(
         self,
