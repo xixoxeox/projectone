@@ -39,8 +39,9 @@ def test_service_executes_and_completes_run() -> None:
     async def exercise() -> None:
         repository = MemoryRepository()
         service = BacktestService(cast(BacktestRepository, repository), Executor(), 30)
-        run = await service.create("breakout", date(2025, 1, 1), date(2025, 1, 10))
+        run = await service.create("watchlist_entry", date(2025, 1, 1), date(2025, 1, 10))
         assert run.status is BacktestStatus.COMPLETED
+        assert run.strategy_version == "1"
         assert run.result == {"trades": 2}
         assert await service.get(run.id) == run
 
@@ -48,6 +49,23 @@ def test_service_executes_and_completes_run() -> None:
 
 
 def test_domain_rejects_unguarded_transition() -> None:
-    run = BacktestRun.create("breakout", date(2025, 1, 1), date(2025, 1, 2))
+    run = BacktestRun.create("watchlist_entry", date(2025, 1, 1), date(2025, 1, 2))
     with pytest.raises(InvalidBacktestTransition):
         run.complete({})
+
+
+@pytest.mark.parametrize(
+    ("name", "version"),
+    [("other", None), ("watchlist_entry", "2")],
+)
+def test_service_rejects_unsupported_strategy_before_persistence(
+    name: str, version: str | None
+) -> None:
+    async def exercise() -> None:
+        repository = MemoryRepository()
+        service = BacktestService(cast(BacktestRepository, repository), Executor(), 30)
+        with pytest.raises(ValueError, match="only strategy_name"):
+            await service.create(name, date(2025, 1, 1), date(2025, 1, 10), version)
+        assert repository.runs == {}
+
+    asyncio.run(exercise())

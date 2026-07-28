@@ -21,6 +21,23 @@ class BacktestExecutionError(ValueError):
     failure_code = "BACKTEST_EXECUTION_ERROR"
 
 
+class UnsupportedBacktestStrategy(BacktestExecutionError):
+    """Raised when a run does not identify the executor's supported strategy."""
+
+    failure_code = "UNSUPPORTED_STRATEGY"
+
+
+def validate_strategy_contract(strategy_name: str, strategy_version: str | None) -> tuple[str, str]:
+    """Validate and canonicalize the public v1 strategy identifier."""
+    name = strategy_name.strip()
+    version = strategy_version.strip() if strategy_version is not None else None
+    if name != "watchlist_entry" or version not in (None, "1"):
+        raise UnsupportedBacktestStrategy(
+            "only strategy_name 'watchlist_entry' with strategy_version null or '1' is supported"
+        )
+    return name, "1"
+
+
 class InvalidBacktestParameters(BacktestExecutionError):
     failure_code = "INVALID_PARAMETERS"
 
@@ -238,6 +255,14 @@ class DatabaseBacktestExecutor:
         self._session, self._strategy = session, strategy
 
     async def execute(self, run: BacktestRun) -> BacktestExecutionResult:
+        requested_name, requested_version = validate_strategy_contract(
+            run.strategy_name, run.strategy_version
+        )
+        if requested_name != self._strategy.name or requested_version != self._strategy.version:
+            raise UnsupportedBacktestStrategy(
+                f"executor strategy {self._strategy.name!r} version {self._strategy.version!r} "
+                "does not match the requested strategy"
+            )
         p = BacktestParameters.parse(run.parameters)
         signals = sorted(
             await self._strategy.generate_signals(run), key=lambda s: (s.signal_date, s.symbol)
@@ -278,28 +303,31 @@ class DatabaseBacktestExecutor:
                 BacktestTrade,
             )
         ]
-        self._session.add_all(
-            [
-                BacktestTradeRecord(
-                    id=t.id,
-                    run_id=t.run_id,
-                    symbol=t.symbol,
-                    signal_date=t.signal_date,
-                    entry_date=t.entry_date,
-                    entry_price=t.entry_price,
-                    quantity=t.quantity,
-                    exit_date=t.exit_date,
-                    exit_price=t.exit_price,
-                    exit_reason=t.exit_reason,
-                    gross_pnl=t.gross_pnl,
-                    commission=t.commission,
-                    tax=t.tax,
-                    slippage_cost=t.slippage_cost,
-                    net_pnl=t.net_pnl,
-                    holding_days=t.holding_days,
-                )
-                for t in trades
-            ]
-        )
-        await self._session.flush()
+        records_to_add = [
+            BacktestTradeRecord(
+                id=t.id,
+                run_id=t.run_id,
+                symbol=t.symbol,
+                signal_date=t.signal_date,
+                entry_date=t.entry_date,
+                entry_price=t.entry_price,
+                quantity=t.quantity,
+                exit_date=t.exit_date,
+                exit_price=t.exit_price,
+                exit_reason=t.exit_reason,
+                gross_pnl=t.gross_pnl,
+                commission=t.commission,
+                tax=t.tax,
+                slippage_cost=t.slippage_cost,
+                net_pnl=t.net_pnl,
+                holding_days=t.holding_days,
+            )
+            for t in trades
+        ]
+        # Isolate trade persistence in a savepoint.  A constraint/flush error can
+        # then be recorded on the already-created run instead of poisoning the
+        # outer transaction or, worse, allowing a completed status to be saved.
+        async with self._session.begin_nested():
+            self._session.add_all(records_to_add)
+            await self._session.flush()
         return BacktestExecutionResult(calculate_metrics(trades, len(signals), p))
