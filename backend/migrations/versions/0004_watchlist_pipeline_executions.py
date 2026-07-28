@@ -1,13 +1,13 @@
-"""add durable daily pipeline execution history
+"""add canonical watchlist pipeline execution history
 
-Revision ID: 0004_pipeline_executions
+Revision ID: 0004_watchlist_pipeline_exec
 Revises: 0003_watchlist_entries
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0004_pipeline_executions"
+revision = "0004_watchlist_pipeline_exec"
 down_revision = "0003_watchlist_entries"
 branch_labels = None
 depends_on = None
@@ -15,7 +15,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
-        "pipeline_executions",
+        "watchlist_pipeline_executions",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("trading_date", sa.Date(), nullable=False),
         sa.Column("trigger_type", sa.String(20), nullable=False),
@@ -29,16 +29,30 @@ def upgrade() -> None:
         sa.Column("stage", sa.String(30)),
         sa.Column("error_code", sa.String(255)),
         sa.Column("recovered_execution_id", sa.Uuid()),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_pipeline_executions")),
-        sa.UniqueConstraint("trading_date", "owner_id", name="uq_pipeline_execution_owner"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_watchlist_pipeline_executions")),
+        sa.UniqueConstraint(
+            "trading_date", "owner_id", name="uq_watchlist_pipeline_execution_owner"
+        ),
     )
-    op.create_index(op.f("ix_pipeline_executions_status"), "pipeline_executions", ["status"])
     op.create_index(
-        op.f("ix_pipeline_executions_trading_date"), "pipeline_executions", ["trading_date"]
+        op.f("ix_watchlist_pipeline_executions_status"),
+        "watchlist_pipeline_executions",
+        ["status"],
+    )
+    op.create_index(
+        op.f("ix_watchlist_pipeline_executions_trading_date"),
+        "watchlist_pipeline_executions",
+        ["trading_date"],
     )
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_pipeline_executions_trading_date"), table_name="pipeline_executions")
-    op.drop_index(op.f("ix_pipeline_executions_status"), table_name="pipeline_executions")
-    op.drop_table("pipeline_executions")
+    op.drop_index(
+        op.f("ix_watchlist_pipeline_executions_trading_date"),
+        table_name="watchlist_pipeline_executions",
+    )
+    op.drop_index(
+        op.f("ix_watchlist_pipeline_executions_status"),
+        table_name="watchlist_pipeline_executions",
+    )
+    op.drop_table("watchlist_pipeline_executions")

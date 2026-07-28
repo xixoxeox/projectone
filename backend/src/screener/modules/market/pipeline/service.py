@@ -7,10 +7,9 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from screener.modules.market.indicators import IndicatorService
-from screener.modules.market.infrastructure.models import PipelineExecution
+from screener.modules.market.infrastructure.models import WatchlistPipelineExecution
 from screener.modules.market.infrastructure.repositories import (
     DailyBarRepository,
-    PipelineExecutionRepository,
     StockRepository,
 )
 from screener.modules.market.pipeline.models import (
@@ -19,6 +18,7 @@ from screener.modules.market.pipeline.models import (
     PipelineStage,
     TriggerType,
 )
+from screener.modules.market.pipeline.repository import PipelineExecutionRepository
 from screener.modules.market.ranking import CandidateRanker
 from screener.modules.market.scanning import CandidateScanner, ScanInput
 from screener.modules.market.watchlist import WatchlistRepository
@@ -67,7 +67,7 @@ class DailyWatchlistPipeline:
             if recovered is not None:
                 recovered_id = recovered.id
             now = datetime.now(UTC)
-            execution = PipelineExecution(
+            execution = WatchlistPipelineExecution(
                 id=execution_id,
                 trading_date=trading_date,
                 trigger_type=trigger_type.value,
@@ -109,10 +109,10 @@ class DailyWatchlistPipeline:
             except Exception as exc:
                 await session.rollback()
                 async with self._sessions() as failure_session:
-                    failed = await failure_session.get(PipelineExecution, execution_id)
+                    failed = await failure_session.get(WatchlistPipelineExecution, execution_id)
                     if failed is None:
                         failure_session.add(
-                            PipelineExecution(
+                            WatchlistPipelineExecution(
                                 id=execution_id,
                                 trading_date=trading_date,
                                 trigger_type=trigger_type.value,
@@ -123,7 +123,7 @@ class DailyWatchlistPipeline:
                             )
                         )
                         await failure_session.flush()
-                        failed = await failure_session.get(PipelineExecution, execution_id)
+                        failed = await failure_session.get(WatchlistPipelineExecution, execution_id)
                     assert failed is not None
                     failed.status = ExecutionStatus.FAILED.value
                     failed.finished_at = datetime.now(UTC)

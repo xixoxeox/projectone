@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
-from typing import cast
+from datetime import UTC, date, datetime
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +10,6 @@ from sqlalchemy.sql import Executable
 from screener.modules.market.domain import DailyBar, InstrumentSnapshot
 from screener.modules.market.infrastructure.models import (
     DailyBarRecord,
-    PipelineExecution,
     Stock,
     SyncJob,
     SyncJobRun,
@@ -291,69 +289,6 @@ class SyncJobRepository:
             (
                 await self.session.scalars(
                     select(SyncJobRun).order_by(SyncJobRun.started_at.desc()).limit(limit)
-                )
-            ).all()
-        )
-
-
-class PipelineExecutionRepository:
-    """Persistence operations used by the owning pipeline transaction."""
-
-    LOCK_KEY = 0x57415443484C4953
-
-    def __init__(self, session: AsyncSession) -> None:
-        self.session = session
-
-    async def acquire_lock(self) -> bool:
-        if self.session.bind is None or self.session.bind.dialect.name != "postgresql":
-            return True
-        return bool(
-            await self.session.scalar(
-                text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": self.LOCK_KEY}
-            )
-        )
-
-    async def successful(self, trading_date: date) -> PipelineExecution | None:
-        return cast(
-            PipelineExecution | None,
-            await self.session.scalar(
-                select(PipelineExecution)
-                .where(
-                    PipelineExecution.trading_date == trading_date,
-                    PipelineExecution.status == "succeeded",
-                )
-                .order_by(PipelineExecution.finished_at.desc())
-                .limit(1)
-            ),
-        )
-
-    async def recover_stale(
-        self, trading_date: date, stale_after: timedelta
-    ) -> PipelineExecution | None:
-        execution = await self.session.scalar(
-            select(PipelineExecution)
-            .where(
-                PipelineExecution.trading_date == trading_date,
-                PipelineExecution.status == "running",
-                PipelineExecution.heartbeat_at < datetime.now(UTC) - stale_after,
-            )
-            .order_by(PipelineExecution.started_at)
-            .with_for_update()
-            .limit(1)
-        )
-        if execution is not None:
-            execution.status = "recovered"
-            execution.finished_at = datetime.now(UTC)
-            execution.error_code = "stale_execution_recovered"
-        return execution
-
-    async def history(self, limit: int = 50) -> list[PipelineExecution]:
-        return list(
-            (
-                await self.session.scalars(
-                    select(PipelineExecution)
-                    .order_by(PipelineExecution.started_at.desc())
-                    .limit(limit)
                 )
             ).all()
         )

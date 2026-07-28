@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from screener.modules.identity.presentation.dependencies import AdminUser
-from screener.modules.market.infrastructure.repositories import PipelineExecutionRepository
 from screener.modules.market.pipeline import PipelineResult, TriggerType
+from screener.modules.market.pipeline.repository import PipelineExecutionRepository
 from screener.modules.notifications import NotificationPublishingPipeline
 from screener.shared.database import get_db_session
 

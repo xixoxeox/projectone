@@ -102,12 +102,12 @@ class SyncJobRun(Base):
     job: Mapped[SyncJob] = relationship(back_populates="runs")
 
 
-class PipelineExecution(Base):
+class WatchlistPipelineExecution(Base):
     """Durable ownership and outcome record for a daily watchlist run."""
 
-    __tablename__ = "pipeline_executions"
+    __tablename__ = "watchlist_pipeline_executions"
     __table_args__ = (
-        UniqueConstraint("trading_date", "owner_id", name="uq_pipeline_execution_owner"),
+        UniqueConstraint("trading_date", "owner_id", name="uq_watchlist_pipeline_execution_owner"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
