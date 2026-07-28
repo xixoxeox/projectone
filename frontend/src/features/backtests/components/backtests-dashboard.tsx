@@ -1,17 +1,81 @@
 "use client";
-import {FormEvent,useCallback,useEffect,useState} from "react";
 import Link from "next/link";
-import {BacktestApiError,createBacktest,getBacktest,listBacktests,listBacktestTrades} from "../api";
-import {dateTime,displayDecimal,money,percent} from "../format";
-import type {BacktestForm,BacktestRun,BacktestTrade} from "../types";
-const today=new Date().toISOString().slice(0,10);const defaults:BacktestForm={start_date:`${today.slice(0,4)}-01-01`,end_date:today,position_size:"500000",stop_loss_pct:"0.05",take_profit_pct:"0.10",max_holding_days:"10",commission_rate:"0.00015",sell_tax_rate:"0.0015",slippage_rate:"0.001"};
-const labels:Record<string,string>={total_signals:"전체 신호",entered_trades:"진입 거래",skipped_signals:"건너뛴 신호",winning_trades:"수익 거래",losing_trades:"손실 거래",win_rate:"승률",gross_profit:"총수익",gross_loss:"총손실",net_profit:"순이익",total_return:"총수익률",average_trade_return:"평균 거래 수익률",average_holding_days:"평균 보유일",profit_factor:"수익 계수",max_drawdown:"최대 낙폭",max_consecutive_wins:"최대 연속 수익",max_consecutive_losses:"최대 연속 손실"};
-const rate=new Set(["win_rate","total_return","average_trade_return","max_drawdown"]),cash=new Set(["gross_profit","gross_loss","net_profit"]);function metric(k:string,v:string|number|null|undefined){return rate.has(k)?percent(v):cash.has(k)?money(v):displayDecimal(v)}
-export function BacktestsDashboard(){const[runs,setRuns]=useState<BacktestRun[]>([]),[state,setState]=useState("loading"),[selected,setSelected]=useState<BacktestRun|null>(null),[form,setForm]=useState(defaults),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState(""),[compare,setCompare]=useState<string[]>([]);const load=useCallback(async()=>{setState("loading");try{setRuns((await listBacktests()).sort((a,b)=>b.created_at.localeCompare(a.created_at)));setState("ready")}catch{setState("error")}},[]);useEffect(()=>{void load()},[load]);
-const select=async(run:BacktestRun)=>{setSelected(run);try{setSelected(await getBacktest(run.id))}catch{}};const submit=async(e:FormEvent)=>{e.preventDefault();setMessage("");const failures:string[]=[];if(form.start_date>form.end_date)failures.push("시작일은 종료일보다 늦을 수 없습니다.");if(Number(form.position_size)<=0)failures.push("포지션 크기는 0보다 커야 합니다.");for(const key of ["stop_loss_pct","take_profit_pct","commission_rate","sell_tax_rate","slippage_rate"] as const)if(Number(form[key])<0)failures.push("비율과 요율은 음수일 수 없습니다.");if(!/^\d+$/.test(form.max_holding_days)||Number(form.max_holding_days)<1)failures.push("최대 보유일은 양의 정수여야 합니다.");if(failures.length){setError(failures.join(" "));return}setBusy(true);setError("");try{const run=await createBacktest(form);await load();setSelected(run);setMessage("백테스트 실행을 생성했습니다.")}catch(x){setError(x instanceof BacktestApiError?x.message:"백테스트를 생성하지 못했습니다.")}finally{setBusy(false)}};const toggle=(id:string)=>setCompare(x=>x.includes(id)?x.filter(y=>y!==id):x.length<2?[...x,id]:[x[1],id]);const compared=compare.map(id=>runs.find(r=>r.id===id)).filter(Boolean) as BacktestRun[];
-return <main className="backtest-shell"><nav aria-label="주요 메뉴"><Link href="/dashboard">대시보드</Link><Link href="/watchlist">관심 종목</Link><Link aria-current="page" href="/backtests">백테스트</Link></nav><header><p className="eyebrow">SPRINT 16</p><h1>백테스트</h1><p className="muted">저장된 실행을 만들고 검토하며 비교합니다.</p></header><section className="panel"><h2>새 실행</h2>{error&&<p className="error" role="alert"><strong>입력을 확인하세요:</strong> {error}</p>}{message&&<p className="success" role="status">{message}</p>}<form onSubmit={submit} className="run-form">{Object.entries(form).map(([key,val])=><label key={key}>{({start_date:"시작일",end_date:"종료일",position_size:"포지션 크기",stop_loss_pct:"손절 비율",take_profit_pct:"익절 비율",max_holding_days:"최대 보유일",commission_rate:"수수료율",sell_tax_rate:"매도세율",slippage_rate:"슬리피지율"} as Record<string,string>)[key]}<input type={key.includes("date")?"date":"number"} step={key==="max_holding_days"?"1":"any"} value={val} onChange={e=>setForm({...form,[key]:e.target.value})}/></label>)}<button disabled={busy}>{busy?"생성 중…":"watchlist_entry v1 실행"}</button></form></section>
-<section className="panel"><h2>저장된 실행</h2>{state==="loading"&&<p role="status">실행 목록을 불러오는 중…</p>}{state==="error"&&<div role="alert">실행 목록을 불러오지 못했습니다. <button onClick={()=>void load()}>다시 시도</button></div>}{state==="ready"&&!runs.length&&<p>저장된 백테스트 실행이 없습니다.</p>}{runs.length>0&&<div className="table-scroll"><table><caption className="sr-only">저장된 백테스트 실행</caption><thead><tr>{["비교","생성","전략","기간","상태","진입","건너뜀","순이익","수익률","실패 코드"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{runs.map(run=><tr key={run.id} className={selected?.id===run.id?"selected":""}><td><input aria-label={`${run.id} 비교 선택`} type="checkbox" disabled={run.status!=="completed"} checked={compare.includes(run.id)} onChange={()=>toggle(run.id)}/></td><td><button className="link-button" onClick={()=>void select(run)}>{dateTime(run.created_at)}</button></td><td>{run.strategy_name} {run.strategy_version??"—"}</td><td>{run.start_date} – {run.end_date}</td><td><span className={`status ${run.status}`}>{run.status}</span></td><td>{displayDecimal(run.result?.entered_trades)}</td><td>{displayDecimal(run.result?.skipped_signals)}</td><td>{money(run.result?.net_profit)}</td><td>{percent(run.result?.total_return)}</td><td>{run.failure_code??"—"}</td></tr>)}</tbody></table></div>}</section>{selected&&<Detail run={selected}/>}<Comparison runs={compared}/></main>}
-function Detail({run}:{run:BacktestRun}){return <section className="panel"><h2>실행 상세</h2><dl className="metric-grid">{[["ID",run.id],["전략",`${run.strategy_name} v${run.strategy_version??"—"}`],["기간",`${run.start_date} – ${run.end_date}`],["데이터 기준",dateTime(run.data_as_of)],["생성",dateTime(run.created_at)],["시작",dateTime(run.started_at)],["완료",dateTime(run.completed_at)],["상태",run.status],["실패 코드",run.failure_code??"—"],["실패 메시지",run.failure_message??"—"]].map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>{run.result&&<><h3>결과 지표</h3><dl className="metric-grid">{Object.entries(labels).filter(([k])=>k in run.result!).map(([k,l])=><div key={k}><dt>{l}</dt><dd>{metric(k,run.result?.[k as keyof typeof run.result] as string|number|null)}</dd></div>)}</dl></>}<Trades runId={run.id}/></section>}
-function Trades({runId}:{runId:string}){const limit=25,[offset,setOffset]=useState(0),[symbol,setSymbol]=useState(""),[reason,setReason]=useState(""),[trades,setTrades]=useState<BacktestTrade[]>([]),[state,setState]=useState("loading"),[attempt,setAttempt]=useState(0);useEffect(()=>{setState("loading");void listBacktestTrades(runId,{limit,offset,symbol,exit_reason:reason}).then(x=>{setTrades(x);setState("ready")}).catch(()=>setState("error"))},[runId,offset,symbol,reason,attempt]);const filter=(set:(x:string)=>void,x:string)=>{set(x);setOffset(0)};return <section><h3>거래 내역</h3><div className="filters"><label>종목<input value={symbol} onChange={e=>filter(setSymbol,e.target.value)}/></label><label>청산 사유<select value={reason} onChange={e=>filter(setReason,e.target.value)}><option value="">전체</option>{["stop_loss","take_profit","max_holding_days","end_of_period"].map(x=><option key={x}>{x}</option>)}</select></label></div>{state==="loading"&&<p role="status">거래 내역을 불러오는 중…</p>}{state==="error"&&<div role="alert">거래 내역을 불러오지 못했습니다. <button onClick={()=>setAttempt(x=>x+1)}>다시 시도</button></div>}{state==="ready"&&!trades.length&&<p>조건에 맞는 거래가 없습니다.</p>}{state==="ready"&&trades.length>0&&<div className="table-scroll"><table><caption className="sr-only">선택한 실행의 거래 내역</caption><thead><tr>{["종목","신호일","진입일","진입가","수량","청산일","청산가","청산 사유","총손익","수수료","세금","슬리피지","순손익","보유일"].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{trades.map(t=><tr key={t.id}><td>{t.symbol}</td><td>{t.signal_date}</td><td>{t.entry_date}</td><td>{money(t.entry_price)}</td><td>{t.quantity}</td><td>{t.exit_date}</td><td>{money(t.exit_price)}</td><td>{t.exit_reason}</td><td>{money(t.gross_pnl)}</td><td>{money(t.commission)}</td><td>{money(t.tax)}</td><td>{money(t.slippage_cost)}</td><td>{String(t.net_pnl).startsWith("-")?"손실":"수익"}: {money(t.net_pnl)}</td><td>{t.holding_days}</td></tr>)}</tbody></table></div>}<div className="pager"><button disabled={!offset} onClick={()=>setOffset(Math.max(0,offset-limit))}>이전</button><span>{offset+1}번째부터</span><button disabled={trades.length<limit} onClick={()=>setOffset(offset+limit)}>다음</button></div></section>}
-function compareDecimal(a:string|number,b:string|number){const normalize=(v:string|number)=>{const raw=String(v),negative=raw.startsWith("-");const [whole,fraction=""]=(negative?raw.slice(1):raw).split(".");return {negative,whole:whole.replace(/^0+/,"")||"0",fraction:fraction.replace(/0+$/,"")}};const x=normalize(a),y=normalize(b);if(x.negative!==y.negative)return x.negative?-1:1;const direction=x.negative?-1:1;if(x.whole.length!==y.whole.length)return x.whole.length>y.whole.length?direction:-direction;const width=Math.max(x.fraction.length,y.fraction.length),left=x.whole+x.fraction.padEnd(width,"0"),right=y.whole+y.fraction.padEnd(width,"0");return left===right?0:left>right?direction:-direction}
-function Comparison({runs}:{runs:BacktestRun[]}){const keys=["total_signals","entered_trades","skipped_signals","win_rate","net_profit","total_return","average_holding_days","maximum_gain","maximum_loss"];return <section className="panel"><h2>실행 비교</h2>{runs.length<2?<p>완료된 서로 다른 실행 두 개를 선택하세요.</p>:<div className="comparison">{runs.map((run,i)=><article key={run.id}><h3>실행 {i+1}</h3><p>{run.start_date} – {run.end_date}</p><h4>파라미터</h4><dl>{Object.entries(run.parameters).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{String(v)}</dd></div>)}</dl><h4>지표</h4><dl>{keys.map(k=>{const own=run.result?.[k as keyof typeof run.result] as string|number|null|undefined,other=runs[1-i].result?.[k as keyof typeof run.result] as string|number|null|undefined;const order=own==null||other==null?null:compareDecimal(own,other);const relation=order===null?"비교 불가":order===0?"같음":order>0?"더 높음":"더 낮음";return <div key={k}><dt>{labels[k]??k}</dt><dd>{metric(k,own)} <small>({relation})</small></dd></div>})}</dl></article>)}</div>}</section>}
+import { useCallback, useEffect, useState } from "react";
+import { getBacktest, listBacktests } from "../api";
+import type { BacktestRun } from "../types";
+import { BacktestComparison } from "./backtest-comparison";
+import { BacktestCreateForm } from "./backtest-create-form";
+import { BacktestRunDetail } from "./backtest-run-detail";
+import { BacktestRunList } from "./backtest-run-list";
+export function BacktestsDashboard() {
+  const [runs, setRuns] = useState<BacktestRun[]>([]);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [selected, setSelected] = useState<BacktestRun | null>(null);
+  const [comparedIds, setComparedIds] = useState<string[]>([]);
+  const loadRuns = useCallback(async () => {
+    setState("loading");
+    try {
+      setRuns(
+        (await listBacktests())
+          .slice()
+          .sort((a, b) => b.created_at.localeCompare(a.created_at)),
+      );
+      setState("ready");
+    } catch {
+      setState("error");
+    }
+  }, []);
+  useEffect(() => {
+    void loadRuns();
+  }, [loadRuns]);
+  async function select(run: BacktestRun) {
+    setSelected(run);
+    try {
+      setSelected(await getBacktest(run.id));
+    } catch {}
+  }
+  async function created(run: BacktestRun) {
+    await loadRuns();
+    setSelected(run);
+  }
+  function compare(id: string) {
+    setComparedIds((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : current.length < 2
+          ? [...current, id]
+          : [current[1], id],
+    );
+  }
+  const compared = comparedIds
+    .map((id) => runs.find((run) => run.id === id))
+    .filter((run): run is BacktestRun => Boolean(run));
+  return (
+    <main className="backtest-shell">
+      <nav aria-label="주요 메뉴">
+        <Link href="/dashboard">대시보드</Link>
+        <Link href="/watchlist">관심 종목</Link>
+        <Link aria-current="page" href="/backtests">
+          백테스트
+        </Link>
+      </nav>
+      <header>
+        <p className="eyebrow">SPRINT 16</p>
+        <h1>백테스트</h1>
+        <p className="muted">저장된 실행을 만들고 검토하며 비교합니다.</p>
+      </header>
+      <BacktestCreateForm onCreated={created} />
+      <BacktestRunList
+        runs={runs}
+        state={state}
+        selectedId={selected?.id}
+        comparedIds={comparedIds}
+        onSelect={(run) => void select(run)}
+        onCompare={compare}
+        onRetry={() => void loadRuns()}
+      />
+      {selected && <BacktestRunDetail run={selected} />}
+      <BacktestComparison runs={compared} />
+    </main>
+  );
+}
