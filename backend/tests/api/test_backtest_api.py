@@ -16,13 +16,22 @@ class FakeService:
         self.runs: list[BacktestRun] = []
 
     async def create(
-        self, strategy_name: str, start_date: date, end_date: date, parameters: dict[str, object]
+        self,
+        strategy_name: str,
+        strategy_version: str | None,
+        start_date: date,
+        end_date: date,
+        parameters: dict[str, object],
+        data_as_of: datetime | None,
     ) -> BacktestRun:
         run = BacktestRun(
             strategy_name=strategy_name.strip(),
+            strategy_version=strategy_version,
             start_date=start_date,
             end_date=end_date,
             parameters=parameters,
+            data_as_of=data_as_of,
+            status=BacktestStatus.COMPLETED,
             created_at=datetime(2026, 7, 28, tzinfo=UTC),
         )
         self.runs.append(run)
@@ -31,8 +40,13 @@ class FakeService:
     async def list(self, limit: int, offset: int) -> list[BacktestRun]:
         return self.runs[offset : offset + limit]
 
-    async def get(self, run_id: UUID) -> BacktestRun | None:
-        return next((run for run in self.runs if run.id == run_id), None)
+    async def get(self, run_id: UUID) -> BacktestRun:
+        from screener.modules.backtest import BacktestNotFoundError
+
+        run = next((run for run in self.runs if run.id == run_id), None)
+        if run is None:
+            raise BacktestNotFoundError
+        return run
 
 
 @pytest.fixture
@@ -44,19 +58,23 @@ def client() -> TestClient:
     app.dependency_overrides.clear()
 
 
-def test_create_backtest_returns_pending_metadata(client: TestClient) -> None:
+def test_create_backtest_returns_completed_metadata(client: TestClient) -> None:
     response = client.post(
         "/api/v1/backtests",
         json={
             "strategy_name": "breakout",
             "start_date": "2025-01-01",
             "end_date": "2025-12-31",
-            "parameters": {"window": 20},
+            "strategy_version": "1.0",
+            "data_as_of": "2026-07-28T00:00:00Z",
+            "parameters": {"risk": {"stop_loss_pct": 5}},
         },
     )
     assert response.status_code == 201
-    assert response.json()["status"] == BacktestStatus.PENDING
-    assert response.json()["parameters"] == {"window": 20}
+    assert response.json()["status"] == BacktestStatus.COMPLETED
+    assert response.json()["parameters"] == {"risk": {"stop_loss_pct": 5}}
+    assert response.json()["strategy_version"] == "1.0"
+    assert response.json()["failure_code"] is None
     assert response.json()["started_at"] is None
 
 
@@ -82,3 +100,6 @@ def test_openapi_documents_foundation_only(client: TestClient) -> None:
     paths = client.get("/openapi.json").json()["paths"]
     assert "/api/v1/backtests" in paths
     assert "/api/v1/backtests/{run_id}" in paths
+    schema = client.get("/openapi.json").json()["components"]["schemas"]
+    assert {"strategy_version", "data_as_of"} <= set(schema["CreateBacktestRequest"]["properties"])
+    assert {"failure_code", "failure_message"} <= set(schema["BacktestResponse"]["properties"])
