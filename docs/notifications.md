@@ -5,21 +5,29 @@
 Notifications are an application-boundary concern. The dependency direction is:
 
 ```text
+Scheduler / Manual REST API
+          │
+          ▼
+NotificationPublishingPipeline
+          │
+          ▼
 DailyWatchlistPipeline
-  -> NotificationPublishingPipeline
-  -> PipelineResult
-  -> NotificationEvent
-  -> NotificationService
-  -> NotificationProvider
-  -> SlackNotificationProvider
-  -> Slack Incoming Webhook
+          │
+          ▼
+PipelineResult
+          │
+          ▼
+NotificationService
+          │
+          ▼
+SlackNotificationProvider
 ```
 
 `PipelineResult`, `TriggerType`, `PipelineStage`, and `ExecutionStatus` are the canonical types from `market.pipeline.models`; the notification layer does not define parallel transport models. Execution IDs remain UUIDs until Slack formatting.
 
 The pipeline returns structured state and never imports Slack code. The boundary adapter maps an outcome to a strongly typed success or failure event and, when applicable, emits a stale-execution recovery event first. `NotificationService` owns failure isolation and structured delivery logs. Formatting and HTTP transport belong exclusively to the selected provider.
 
-The application composition root constructs one provider and injects its service. It reuses the application's lifespan-scoped `httpx.AsyncClient`; no client or connection pool is created per message.
+The application composition root constructs one `NotificationPublishingPipeline` singleton. Both APScheduler and the manual REST dependency reuse that boundary; neither constructs or invokes the underlying daily pipeline directly. The notification service reuses the application's lifespan-scoped `httpx.AsyncClient`; no client or connection pool is created per message.
 
 ## Providers and events
 

@@ -17,7 +17,10 @@ from screener.modules.identity.presentation.dependencies import get_current_user
 from screener.modules.market.domain import DailyBar, InstrumentSnapshot
 from screener.modules.market.infrastructure.models import DailyBarRecord, Stock, SyncJobRun
 from screener.modules.market.infrastructure.repositories import DailyBarRepository, StockRepository
-from screener.modules.market.presentation.admin_router import coordinator, router
+from screener.modules.market.presentation.admin_router import (
+    coordinator,
+    router,
+)
 from screener.modules.market.scheduler import build_scheduler
 from screener.modules.market.sync import (
     DailyBarSyncService,
@@ -236,9 +239,10 @@ async def test_same_job_cannot_run_concurrently(sessions: async_sessionmaker[Asy
 def test_scheduler_registration_and_test_environment_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    scheduler = build_scheduler(Mock(), Mock())
+    pipeline = Mock()
+    scheduler = build_scheduler(pipeline)
     jobs = {job.id: job for job in scheduler.get_jobs()}
-    assert set(jobs) == {"stock_master", "daily_bars"}
+    assert set(jobs) == {"daily_watchlist"}
     assert all(job.coalesce and job.max_instances == 1 for job in jobs.values())
     assert not scheduler.running
     monkeypatch.setattr("screener.main.settings", Settings(app_env="test"))
@@ -251,6 +255,7 @@ def test_scheduler_registration_and_test_environment_policy(
         ("post", "/api/v1/admin/sync/stocks"),
         ("post", "/api/v1/admin/sync/daily-bars"),
         ("post", "/api/v1/admin/sync/all"),
+        ("post", "/api/v1/admin/sync/watchlist/run"),
         ("get", "/api/v1/admin/sync/status"),
         ("get", "/api/v1/admin/sync/history"),
     ],

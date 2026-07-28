@@ -163,6 +163,34 @@ class DailyBarRepository:
         )
         return {symbol: value for symbol, value in result if value is not None}
 
+    async def history(self, symbols: list[str]) -> dict[str, list[DailyBar]]:
+        """Return all persisted bars for each symbol in chronological order."""
+        if not symbols:
+            return {}
+        records = (
+            await self.session.scalars(
+                select(DailyBarRecord)
+                .where(DailyBarRecord.symbol.in_(symbols))
+                .order_by(DailyBarRecord.symbol, DailyBarRecord.trading_date)
+            )
+        ).all()
+        histories: dict[str, list[DailyBar]] = {symbol: [] for symbol in symbols}
+        for record in records:
+            histories[record.symbol].append(
+                DailyBar(
+                    symbol=record.symbol,
+                    trading_date=record.trading_date,
+                    open=record.open,
+                    high=record.high,
+                    low=record.low,
+                    close=record.close,
+                    volume=record.volume,
+                    source=record.source,
+                    as_of=record.provider_timestamp or record.updated_at,
+                )
+            )
+        return histories
+
     async def upsert(self, bars: list[DailyBar]) -> UpsertResult:
         keys = [(x.symbol, x.trading_date) for x in bars]
         if len(keys) != len(set(keys)):

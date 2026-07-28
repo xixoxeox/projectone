@@ -134,11 +134,11 @@ async def test_notification_exception_does_not_fail_pipeline() -> None:
         date(2026, 7, 28), UUID(int=1), TriggerType.SCHEDULED, ExecutionStatus.SUCCEEDED
     )
 
-    async def pipeline() -> PipelineResult:
+    async def pipeline(_: TriggerType) -> PipelineResult:
         return expected
 
     wrapper = NotificationPublishingPipeline(pipeline, NotificationService(RaisingProvider()))
-    assert await wrapper.run() is expected
+    assert await wrapper.run(TriggerType.SCHEDULED) is expected
 
 
 class RecordingProvider:
@@ -189,10 +189,12 @@ async def test_pipeline_publishes_outcome_events(
 ) -> None:
     provider = RecordingProvider()
 
-    async def pipeline() -> PipelineResult:
+    async def pipeline(_: TriggerType) -> PipelineResult:
         return result
 
-    returned = await NotificationPublishingPipeline(pipeline, NotificationService(provider)).run()
+    returned = await NotificationPublishingPipeline(pipeline, NotificationService(provider)).run(
+        result.trigger_type
+    )
     assert returned is result
     assert [type(event) for event in provider.events] == event_types
 

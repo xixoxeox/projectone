@@ -17,14 +17,14 @@ class NotificationPublishingPipeline:
 
     def __init__(
         self,
-        run_pipeline: Callable[[], Awaitable[PipelineResult]],
+        run_pipeline: Callable[[TriggerType], Awaitable[PipelineResult]],
         notifications: NotificationService,
     ) -> None:
         self._run_pipeline = run_pipeline
         self._notifications = notifications
 
-    async def run(self) -> PipelineResult:
-        result = await self._run_pipeline()
+    async def run(self, trigger_type: TriggerType) -> PipelineResult:
+        result = await self._run_pipeline(trigger_type)
         if result.recovered_execution_id is not None:
             await self._notifications.publish(
                 PipelineRecoveredEvent(

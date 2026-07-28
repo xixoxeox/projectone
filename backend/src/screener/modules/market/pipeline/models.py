@@ -19,6 +19,7 @@ class ExecutionStatus(StrEnum):
 
 class PipelineStage(StrEnum):
     UNKNOWN = "unknown"
+    SYNC = "sync"
     SCANNING = "scanning"
     SCREENING = "screening"
     RANKING = "ranking"
