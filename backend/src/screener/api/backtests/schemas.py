@@ -70,3 +70,93 @@ class BacktestTradeResponse(BaseModel):
     net_pnl: Decimal
     holding_days: int
     created_at: datetime
+
+
+class _AnalysisModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnalysisSummaryResponse(_AnalysisModel):
+    winning_trades: int
+    losing_trades: int
+    breakeven_trades: int
+    win_rate: Decimal | None
+    gross_profit: Decimal
+    gross_loss: Decimal
+    net_profit: Decimal
+    average_trade_pnl: Decimal | None
+    average_win: Decimal | None
+    average_loss: Decimal | None
+    largest_win: Decimal | None
+    largest_loss: Decimal | None
+    profit_factor: Decimal | None
+    average_holding_days: Decimal | None
+    max_consecutive_wins: int
+    max_consecutive_losses: int
+    max_realized_pnl_drawdown: Decimal
+
+
+class CumulativePointResponse(_AnalysisModel):
+    sequence: int
+    trade_id: UUID
+    exit_date: date
+    symbol: str
+    exit_reason: BacktestExitReason
+    net_pnl: Decimal
+    cumulative_net_pnl: Decimal
+    running_peak: Decimal
+    realized_drawdown: Decimal
+    realized_drawdown_pct: Decimal | None
+
+
+class SymbolAnalysisResponse(_AnalysisModel):
+    symbol: str
+    trade_count: int
+    winning_trades: int
+    losing_trades: int
+    breakeven_trades: int
+    win_rate: Decimal | None
+    gross_profit: Decimal
+    gross_loss: Decimal
+    net_profit: Decimal
+    average_trade_pnl: Decimal | None
+    average_holding_days: Decimal | None
+    largest_win: Decimal | None
+    largest_loss: Decimal | None
+
+
+class ExitReasonAnalysisResponse(_AnalysisModel):
+    exit_reason: BacktestExitReason
+    trade_count: int
+    trade_share: Decimal
+    winning_trades: int
+    losing_trades: int
+    breakeven_trades: int
+    win_rate: Decimal
+    net_profit: Decimal
+    average_trade_pnl: Decimal
+    average_holding_days: Decimal
+
+
+class MonthAnalysisResponse(_AnalysisModel):
+    month: str
+    trade_count: int
+    winning_trades: int
+    losing_trades: int
+    breakeven_trades: int
+    win_rate: Decimal | None
+    gross_profit: Decimal
+    gross_loss: Decimal
+    net_profit: Decimal
+    average_trade_pnl: Decimal | None
+    average_holding_days: Decimal | None
+
+
+class BacktestAnalysisResponse(_AnalysisModel):
+    run_id: UUID
+    trade_count: int
+    summary: AnalysisSummaryResponse
+    cumulative_realized_pnl: list[CumulativePointResponse]
+    by_symbol: list[SymbolAnalysisResponse]
+    by_exit_reason: list[ExitReasonAnalysisResponse]
+    by_month: list[MonthAnalysisResponse]

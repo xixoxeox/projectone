@@ -69,3 +69,24 @@ export interface BacktestFormValues {
   sell_tax_rate: string;
   slippage_rate: string;
 }
+
+export interface AnalysisStats {
+  trade_count?: number;
+  winning_trades: number; losing_trades: number; breakeven_trades: number;
+  win_rate: DecimalString | null; gross_profit?: DecimalString; gross_loss?: DecimalString;
+  net_profit: DecimalString; average_trade_pnl: DecimalString | null;
+  average_holding_days: DecimalString | null;
+  largest_win?: DecimalString | null; largest_loss?: DecimalString | null;
+}
+export interface BacktestAnalysisSummary extends AnalysisStats {
+  average_win: DecimalString | null; average_loss: DecimalString | null;
+  profit_factor: DecimalString | null; max_consecutive_wins: number;
+  max_consecutive_losses: number; max_realized_pnl_drawdown: DecimalString;
+}
+export interface BacktestAnalysis {
+  run_id: string; trade_count: number; summary: BacktestAnalysisSummary;
+  cumulative_realized_pnl: Array<{sequence:number;trade_id:string;exit_date:string;symbol:string;exit_reason:string;net_pnl:DecimalString;cumulative_net_pnl:DecimalString;running_peak:DecimalString;realized_drawdown:DecimalString;realized_drawdown_pct:DecimalString|null}>;
+  by_symbol: Array<AnalysisStats & {symbol:string;trade_count:number}>;
+  by_exit_reason: Array<AnalysisStats & {exit_reason:string;trade_count:number;trade_share:DecimalString}>;
+  by_month: Array<AnalysisStats & {month:string;trade_count:number}>;
+}

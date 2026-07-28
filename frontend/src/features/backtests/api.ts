@@ -1,4 +1,4 @@
-import type { BacktestFormValues, BacktestRun, BacktestTrade } from "./types";
+import type { BacktestAnalysis, BacktestFormValues, BacktestRun, BacktestTrade } from "./types";
 
 const API_BASE_PATH = process.env.NEXT_PUBLIC_API_BASE_PATH ?? "/api/v1";
 const MAX_TRADE_LIMIT = 500;
@@ -53,6 +53,8 @@ export const listBacktests = (): Promise<BacktestRun[]> =>
   request("/backtests");
 export const getBacktest = (id: string): Promise<BacktestRun> =>
   request(`/backtests/${encodeURIComponent(id)}`);
+export const getBacktestAnalysis = (id: string): Promise<BacktestAnalysis> =>
+  request(`/backtests/${encodeURIComponent(id)}/analysis`);
 
 export function createBacktest(
   values: BacktestFormValues,
