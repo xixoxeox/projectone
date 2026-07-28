@@ -1,10 +1,13 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from screener.modules.backtest import BacktestStatus
+from screener.modules.backtest.domain import BacktestExitReason
+from screener.modules.backtest.executor import BacktestParameters
 
 
 class BacktestCreateRequest(BaseModel):
@@ -14,6 +17,12 @@ class BacktestCreateRequest(BaseModel):
     start_date: date
     end_date: date
     data_as_of: datetime | None = None
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
+        BacktestParameters.parse(value)
+        return value
 
     @field_validator("strategy_name")
     @classmethod
@@ -53,3 +62,24 @@ class BacktestResponse(BaseModel):
     result: dict[str, Any] | None
     failure_code: str | None
     failure_message: str | None
+
+
+class BacktestTradeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    run_id: UUID
+    symbol: str
+    signal_date: date
+    entry_date: date
+    entry_price: Decimal
+    quantity: int
+    exit_date: date
+    exit_price: Decimal
+    exit_reason: BacktestExitReason
+    gross_pnl: Decimal
+    commission: Decimal
+    tax: Decimal
+    slippage_cost: Decimal
+    net_pnl: Decimal
+    holding_days: int
+    created_at: datetime

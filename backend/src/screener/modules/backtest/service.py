@@ -1,9 +1,10 @@
+import builtins
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from screener.modules.backtest.domain import BacktestRun
-from screener.modules.backtest.executor import BacktestExecutor
+from screener.modules.backtest.domain import BacktestExitReason, BacktestRun, BacktestTrade
+from screener.modules.backtest.executor import BacktestExecutionError, BacktestExecutor
 from screener.modules.backtest.repository import BacktestRepository
 
 
@@ -43,7 +44,10 @@ class BacktestService:
         try:
             execution = await self.executor.execute(running)
         except Exception as exc:
-            failed = running.fail(str(exc), type(exc).__name__)
+            code = (
+                exc.failure_code if isinstance(exc, BacktestExecutionError) else "EXECUTION_FAILED"
+            )
+            failed = running.fail(str(exc), code)
             await self.repository.save(failed)
             return failed
         completed = running.complete(execution.metrics)
@@ -58,3 +62,14 @@ class BacktestService:
 
     async def list(self) -> list[BacktestRun]:
         return await self.repository.list()
+
+    async def list_trades(
+        self,
+        run_id: UUID,
+        limit: int,
+        offset: int,
+        symbol: str | None,
+        exit_reason: BacktestExitReason | None,
+    ) -> builtins.list[BacktestTrade]:
+        await self.get(run_id)
+        return await self.repository.list_trades(run_id, limit, offset, symbol, exit_reason)
