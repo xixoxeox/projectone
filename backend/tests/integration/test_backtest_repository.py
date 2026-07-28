@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -20,7 +21,9 @@ from screener.modules.backtest.models import BacktestRunRecord, BacktestTradeRec
 from screener.modules.backtest.service import BacktestService
 from screener.modules.backtest.strategy import BacktestSignal
 from screener.modules.market.infrastructure.models import DailyBarRecord, Stock
-from screener.modules.market.watchlist.models import WatchlistEntryRecord
+from screener.modules.market.ranking import RankedCandidate
+from screener.modules.market.screening import ScreeningResult
+from screener.modules.market.watchlist import WatchlistRepository
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL PostgreSQL database is required"
@@ -35,6 +38,9 @@ async def session() -> AsyncIterator[AsyncSession]:
     url = os.environ["TEST_DATABASE_URL"]
     assert url.startswith("postgresql+asyncpg://"), "integration tests require PostgreSQL"
     assert url != os.getenv("PRODUCTION_DATABASE_URL"), "test database must not be production"
+    assert (make_url(url).database or "").endswith("_test"), (
+        "refusing destructive integration-test cleanup outside a *_test database"
+    )
     engine = create_async_engine(url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     async with sessions() as value:
@@ -111,10 +117,11 @@ async def test_trade_cascade_delete(session: AsyncSession) -> None:
 async def test_duplicate_signal_unique_constraint(session: AsyncSession) -> None:
     original = run()
     await BacktestRepository(session).save(original)
-    session.add_all([trade_record(original.id), trade_record(original.id)])
     with pytest.raises(IntegrityError):
-        await session.flush()
-    await session.rollback()
+        async with session.begin_nested():
+            session.add_all([trade_record(original.id), trade_record(original.id)])
+            await session.flush()
+    assert await session.scalar(select(func.count()).select_from(BacktestRunRecord)) == 1
 
 
 @pytest.mark.parametrize(
@@ -130,26 +137,45 @@ async def test_trade_date_and_quantity_constraints(
 ) -> None:
     original = run()
     await BacktestRepository(session).save(original)
-    session.add(trade_record(original.id, **changes))
     with pytest.raises(IntegrityError):
-        await session.flush()
-    await session.rollback()
+        async with session.begin_nested():
+            session.add(trade_record(original.id, **changes))
+            await session.flush()
+    assert await session.scalar(select(func.count()).select_from(BacktestRunRecord)) == 1
 
 
 async def seed_execution(session: AsyncSession) -> None:
     session.add(
-        Stock(symbol="005930", name="Samsung", market="KOSPI", currency="KRW", country="KR")
-    )
-    session.add(
-        WatchlistEntryRecord(
-            trading_date=date(2026, 1, 2),
+        Stock(
             symbol="005930",
-            rank=1,
-            total_score="1",
-            component_scores="{}",
-            warnings="[]",
-            snapshot="{}",
+            name="Samsung Electronics",
+            market="KOSPI",
+            exchange="XKRX",
+            currency="KRW",
+            country="KR",
+            security_type="common_stock",
+            listing_status="listed",
+            is_active=True,
         )
+    )
+    await WatchlistRepository(session).save(
+        date(2026, 1, 2),
+        [
+            RankedCandidate(
+                symbol="005930",
+                rank=1,
+                total_score=Decimal("91.25000000"),
+                component_scores={"trend": Decimal("91.25000000")},
+                source_result=ScreeningResult(
+                    symbol="005930",
+                    passed=True,
+                    reasons=["PASSED: seeded integration candidate"],
+                    warnings=[],
+                    metrics={"close": Decimal("92.00000000")},
+                ),
+                warnings=[],
+            )
+        ],
     )
     for trading_date, opening, high, close in [
         (date(2026, 1, 2), "90", "95", "92"),
@@ -167,6 +193,7 @@ async def seed_execution(session: AsyncSession) -> None:
                 close=Decimal(close),
                 volume=100,
                 source="test",
+                provider_timestamp=datetime(2026, 1, 22, tzinfo=UTC),
             )
         )
     await session.flush()
@@ -222,5 +249,7 @@ async def test_real_nested_flush_failure_persists_failed_run_and_keeps_session_u
     restored = await repository.get(failed.id)
     assert restored is not None and restored.status.value == "failed"
     assert restored.failure_code == "EXECUTION_FAILED"
+    assert restored.failure_message is not None
+    assert "uq_backtest_trade_signal" in restored.failure_message
     assert await session.scalar(select(func.count()).select_from(BacktestTradeRecord)) == 0
     assert await session.scalar(select(func.count()).select_from(BacktestRunRecord)) == 1
