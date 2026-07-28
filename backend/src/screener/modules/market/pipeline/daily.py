@@ -16,7 +16,6 @@ from screener.modules.market.pipeline.models import (
 )
 from screener.modules.market.ranking import CandidateRanker
 from screener.modules.market.scanning import CandidateScanner, ScanInput
-from screener.modules.market.sync import SyncCoordinator
 from screener.modules.market.watchlist import WatchlistRepository
 
 
@@ -26,13 +25,11 @@ class DailyWatchlistPipeline:
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
-        sync: SyncCoordinator,
         indicators: IndicatorService,
         scanner: CandidateScanner,
         ranker: CandidateRanker,
     ) -> None:
         self._sessions = sessions
-        self._sync = sync
         self._indicators = indicators
         self._scanner = scanner
         self._ranker = ranker
@@ -42,10 +39,8 @@ class DailyWatchlistPipeline:
         execution_id = uuid4()
         trading_date = date.today()
         started = monotonic()
-        stage = PipelineStage.SYNC
+        stage = PipelineStage.SCANNING
         try:
-            await self._sync.all()
-            stage = PipelineStage.SCANNING
             async with self._sessions() as session:
                 stocks = await StockRepository(session).active()
                 histories = await DailyBarRepository(session).history(

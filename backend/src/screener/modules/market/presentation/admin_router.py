@@ -32,7 +32,7 @@ async def run_watchlist(
     _: AdminUser,
     pipeline: Annotated[NotificationPublishingPipeline, Depends(watchlist_pipeline)],
 ) -> PipelineResult:
-    """Manually execute the same application boundary used by the scheduler."""
+    """Generate a watchlist from the latest persisted market data."""
     return await pipeline.run(TriggerType.MANUAL)
 
 

@@ -2,16 +2,25 @@
 
 from datetime import date
 from functools import partial
+from inspect import signature
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from screener.main import app
 from screener.modules.identity.presentation.dependencies import get_current_user
-from screener.modules.market.pipeline import ExecutionStatus, PipelineResult, TriggerType
+from screener.modules.market.pipeline import (
+    DailyWatchlistPipeline,
+    ExecutionStatus,
+    PipelineResult,
+    TriggerType,
+)
 from screener.modules.market.presentation.admin_router import router, watchlist_pipeline
+from screener.modules.market.scheduler import build_scheduler
 from screener.modules.notifications import NotificationPublishingPipeline, NotificationService
 
 
@@ -25,16 +34,41 @@ class RecordingProvider:
         self.events.append(event)
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 def test_startup_constructs_singleton_boundary_used_by_scheduler() -> None:
     with TestClient(app):
         boundary = app.state.notification_publishing_pipeline
         assert isinstance(boundary, NotificationPublishingPipeline)
         jobs = app.state.scheduler.get_jobs()
-        assert len(jobs) == 1
-        scheduled = jobs[0].func
+        assert {job.id for job in jobs} == {"stock_master", "daily_bars", "daily_watchlist"}
+        scheduled = next(job.func for job in jobs if job.id == "daily_watchlist")
         assert isinstance(scheduled, partial)
         assert scheduled.func.__self__ is boundary
         assert scheduled.args == (TriggerType.SCHEDULED,)
+
+
+@pytest.mark.anyio
+async def test_scheduled_watchlist_does_not_duplicate_synchronization() -> None:
+    stocks = SimpleNamespace(run=AsyncMock())
+    bars = SimpleNamespace(run=AsyncMock())
+    boundary = SimpleNamespace(run=AsyncMock())
+    scheduler = build_scheduler(stocks, bars, boundary)
+
+    scheduled = next(job.func for job in scheduler.get_jobs() if job.id == "daily_watchlist")
+    await scheduled()
+
+    boundary.run.assert_awaited_once_with(TriggerType.SCHEDULED)
+    stocks.run.assert_not_awaited()
+    bars.run.assert_not_awaited()
+
+
+def test_daily_pipeline_has_no_synchronization_dependency() -> None:
+    parameters = signature(DailyWatchlistPipeline).parameters
+    assert set(parameters) == {"sessions", "indicators", "scanner", "ranker"}
 
 
 def test_manual_endpoint_uses_boundary_and_reaches_notification_service() -> None:

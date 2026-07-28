@@ -5,7 +5,7 @@
 Notifications are an application-boundary concern. The dependency direction is:
 
 ```text
-Scheduler / Manual REST API
+Scheduler (18:10 Asia/Seoul) / Manual REST API
           │
           ▼
 NotificationPublishingPipeline
@@ -28,6 +28,14 @@ SlackNotificationProvider
 The pipeline returns structured state and never imports Slack code. The boundary adapter maps an outcome to a strongly typed success or failure event and, when applicable, emits a stale-execution recovery event first. `NotificationService` owns failure isolation and structured delivery logs. Formatting and HTTP transport belong exclusively to the selected provider.
 
 The application composition root constructs one `NotificationPublishingPipeline` singleton. Both APScheduler and the manual REST dependency reuse that boundary; neither constructs or invokes the underlying daily pipeline directly. The notification service reuses the application's lifespan-scoped `httpx.AsyncClient`; no client or connection pool is created per message.
+
+## Production schedule
+
+- **06:00 Asia/Seoul:** `stock_master` refreshes the persisted active-stock universe.
+- **18:00 Asia/Seoul:** `daily_bars` refreshes persisted daily market data.
+- **18:10 Asia/Seoul:** `daily_watchlist` executes `NotificationPublishingPipeline`, generates the watchlist from persisted synchronized data, and publishes its outcome.
+
+`DailyWatchlistPipeline` never synchronizes market data. Scheduled and manual watchlist generation both consume the latest persisted stocks and bars; a manual run does not implicitly refresh either dataset.
 
 ## Providers and events
 

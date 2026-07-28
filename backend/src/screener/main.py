@@ -72,14 +72,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.sync_coordinator = sync_coordinator
     daily_pipeline = DailyWatchlistPipeline(
         SessionFactory,
-        sync_coordinator,
         IndicatorService(),
         CandidateScanner(ScreeningEngine(BreakoutStrategy())),
         CandidateRanker(),
     )
     publishing_pipeline = NotificationPublishingPipeline(daily_pipeline.run, notification_service)
     app.state.notification_publishing_pipeline = publishing_pipeline
-    scheduler = build_scheduler(publishing_pipeline)
+    scheduler = build_scheduler(stock_sync, bar_sync, publishing_pipeline)
     app.state.scheduler = scheduler
     if should_start_scheduler():
         scheduler.start()
