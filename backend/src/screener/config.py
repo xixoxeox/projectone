@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     notification_max_retries: int = Field(default=2, ge=0, le=5)
     sync_history_years: int = Field(default=3, ge=1, le=20)
     sync_batch_size: int = Field(default=500, ge=10, le=5000)
+    backtest_max_range_days: int = Field(default=3650, ge=1, le=36500)
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

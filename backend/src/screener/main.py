@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from screener.api.admin_watchlist_pipeline import router as pipeline_router
+from screener.api.backtests.router import router as backtest_router
 from screener.api.watchlist.router import router as watchlist_router
 from screener.config import get_settings
 from screener.modules.identity.presentation.router import router as auth_router
@@ -145,3 +146,4 @@ app.include_router(market_router, prefix=settings.api_base_path)
 app.include_router(admin_sync_router, prefix=settings.api_base_path)
 app.include_router(watchlist_router, prefix=settings.api_base_path)
 app.include_router(pipeline_router, prefix=settings.api_base_path)
+app.include_router(backtest_router, prefix=settings.api_base_path)
