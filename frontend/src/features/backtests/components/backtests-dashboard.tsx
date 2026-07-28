@@ -8,6 +8,7 @@ import { BacktestAnalysis } from "./backtest-analysis";
 import { BacktestCreateForm } from "./backtest-create-form";
 import { BacktestRunDetail } from "./backtest-run-detail";
 import { BacktestRunList } from "./backtest-run-list";
+import { BacktestPortfolio } from "./backtest-portfolio";
 export function BacktestsDashboard() {
   const [runs, setRuns] = useState<BacktestRun[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -61,7 +62,7 @@ export function BacktestsDashboard() {
         </Link>
       </nav>
       <header>
-        <p className="eyebrow">SPRINT 17</p>
+        <p className="eyebrow">SPRINT 18</p>
         <h1>백테스트</h1>
         <p className="muted">저장된 실행을 만들고 검토하며 비교합니다.</p>
       </header>
@@ -76,6 +77,7 @@ export function BacktestsDashboard() {
         onRetry={() => void loadRuns()}
       />
       {selected && <BacktestRunDetail run={selected} />}
+      {selected?.status === "completed" && selected.execution_mode === "portfolio" && <BacktestPortfolio runId={selected.id} />}
       {selected?.status === "completed" && <BacktestAnalysis runId={selected.id} />}
       <BacktestComparison runs={compared} />
     </main>

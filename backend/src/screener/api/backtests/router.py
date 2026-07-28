@@ -8,15 +8,44 @@ from screener.api.backtests.schemas import (
     BacktestCreateRequest,
     BacktestResponse,
     BacktestTradeResponse,
+    PortfolioResponse,
+    PortfolioSnapshotResponse,
 )
 from screener.modules.backtest.domain import BacktestExitReason
 from screener.modules.backtest.service import (
     BacktestAnalysisUnavailableError,
     BacktestNotFoundError,
     BacktestRangeError,
+    PortfolioUnavailableError,
 )
 
 router = APIRouter(prefix="/backtests", tags=["backtests"])
+
+
+@router.get("/{run_id}/portfolio", response_model=PortfolioResponse)
+async def get_backtest_portfolio(
+    run_id: UUID, service: BacktestServiceDependency
+) -> PortfolioResponse:
+    try:
+        run, snapshots = await service.portfolio(run_id)
+    except BacktestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Backtest run not found") from exc
+    except PortfolioUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    result = run.result or {}
+    return PortfolioResponse(
+        run_id=run.id,
+        initial_capital=result["initial_capital"],
+        final_equity=result["final_equity"],
+        final_cash=result["final_cash"],
+        net_profit=result["net_profit"],
+        total_return=result["total_return"],
+        max_drawdown=result["max_drawdown"],
+        max_drawdown_pct=result["max_drawdown_pct"],
+        maximum_open_positions_used=result["maximum_open_positions_used"],
+        average_capital_utilization=result["average_capital_utilization"],
+        snapshots=[PortfolioSnapshotResponse.model_validate(item) for item in snapshots],
+    )
 
 
 @router.get("/{run_id}/analysis", response_model=BacktestAnalysisResponse)
@@ -37,12 +66,15 @@ async def create_backtest(
     request: BacktestCreateRequest, service: BacktestServiceDependency
 ) -> BacktestResponse:
     try:
+        parameters = dict(request.parameters)
+        if "execution_mode" in request.model_fields_set:
+            parameters["execution_mode"] = request.execution_mode
         run = await service.create(
             request.strategy_name,
             request.start_date,
             request.end_date,
             request.strategy_version,
-            request.parameters,
+            parameters,
             request.data_as_of,
         )
     except (ValueError, BacktestRangeError) as exc:

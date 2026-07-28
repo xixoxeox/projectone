@@ -263,6 +263,24 @@ class DatabaseBacktestExecutor:
                 f"executor strategy {self._strategy.name!r} version {self._strategy.version!r} "
                 "does not match the requested strategy"
             )
+        mode = run.parameters.get("execution_mode", "independent")
+        if mode == "portfolio":
+            from screener.modules.backtest.portfolio import PortfolioBacktestExecutor
+
+            return await PortfolioBacktestExecutor(self._session, self._strategy).execute(run)
+        if mode != "independent":
+            raise InvalidBacktestParameters("execution_mode must be independent or portfolio")
+        incompatible = {
+            "max_open_positions",
+            "position_sizing_mode",
+            "position_size_pct",
+            "minimum_cash_buffer_pct",
+        } & run.parameters.keys()
+        if incompatible:
+            names = ", ".join(sorted(incompatible))
+            raise InvalidBacktestParameters(
+                f"portfolio parameters are incompatible with independent mode: {names}"
+            )
         p = BacktestParameters.parse(run.parameters)
         signals = sorted(
             await self._strategy.generate_signals(run), key=lambda s: (s.signal_date, s.symbol)
