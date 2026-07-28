@@ -18,6 +18,7 @@ from screener.modules.backtest.repository import BacktestRepository
 class MemoryRepository:
     def __init__(self) -> None:
         self.runs: dict[UUID, BacktestRun] = {}
+        self.analysis_reads = 0
 
     async def save(self, run: BacktestRun) -> BacktestRun:
         self.runs[run.id] = run
@@ -28,6 +29,10 @@ class MemoryRepository:
 
     async def list(self) -> list[BacktestRun]:
         return list(self.runs.values())
+
+    async def list_all_trades_for_analysis(self, run_id: UUID):
+        self.analysis_reads += 1
+        return []
 
 
 class Executor:
@@ -67,5 +72,18 @@ def test_service_rejects_unsupported_strategy_before_persistence(
         with pytest.raises(ValueError, match="only strategy_name"):
             await service.create(name, date(2025, 1, 1), date(2025, 1, 10), version)
         assert repository.runs == {}
+
+    asyncio.run(exercise())
+
+
+def test_service_does_not_read_trades_for_non_completed_analysis() -> None:
+    async def exercise() -> None:
+        repository = MemoryRepository()
+        pending = BacktestRun.create("watchlist_entry", date(2025, 1, 1), date(2025, 1, 2))
+        repository.runs[pending.id] = pending
+        service = BacktestService(cast(BacktestRepository, repository), Executor(), 30)
+        with pytest.raises(RuntimeError, match="available only for completed runs"):
+            await service.analyze(pending.id)
+        assert repository.analysis_reads == 0
 
     asyncio.run(exercise())

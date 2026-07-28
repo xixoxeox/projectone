@@ -12,7 +12,12 @@ from fastapi.testclient import TestClient
 from screener.api.backtests.dependencies import get_backtest_service
 from screener.main import app
 from screener.modules.backtest import BacktestExitReason, BacktestRun, BacktestTrade
-from screener.modules.backtest.service import BacktestNotFoundError, BacktestRangeError
+from screener.modules.backtest.analysis import analyze_backtest_trades
+from screener.modules.backtest.service import (
+    BacktestAnalysisUnavailableError,
+    BacktestNotFoundError,
+    BacktestRangeError,
+)
 
 
 class FakeService:
@@ -66,6 +71,14 @@ class FakeService:
         if exit_reason is not None:
             trades = [trade for trade in trades if trade.exit_reason == exit_reason]
         return trades[offset : offset + limit]
+
+    async def analyze(self, run_id: UUID):  # type intentionally inferred like the real service
+        run = await self.get(run_id)
+        if run.status.value != "completed":
+            raise BacktestAnalysisUnavailableError(
+                "Backtest analysis is available only for completed runs"
+            )
+        return analyze_backtest_trades(run_id, self.trades.get(run_id, []))
 
 
 @pytest.fixture
@@ -187,6 +200,47 @@ def test_openapi_contains_all_backtest_routes(client: TestClient) -> None:
     assert {"get", "post"} <= set(paths["/api/v1/backtests"])
     assert "get" in paths["/api/v1/backtests/{run_id}"]
     assert "get" in paths["/api/v1/backtests/{run_id}/trades"]
+    assert "get" in paths["/api/v1/backtests/{run_id}/analysis"]
+
+
+def test_completed_analysis_serializes_exact_decimal_strings(
+    client: TestClient, service: FakeService
+) -> None:
+    run_id = UUID(client.post("/api/v1/backtests", json=payload()).json()["id"])
+    service.trades[run_id] = [trade(run_id, "005930", BacktestExitReason.TAKE_PROFIT, 1)]
+    response = client.get(f"/api/v1/backtests/{run_id}/analysis")
+    assert response.status_code == 200
+    assert response.json()["summary"]["net_profit"] == "94.00000000"
+    assert response.json()["cumulative_realized_pnl"][0]["net_pnl"] == "94.00000000"
+
+
+def test_completed_zero_trade_analysis_is_valid(client: TestClient) -> None:
+    run_id = client.post("/api/v1/backtests", json=payload()).json()["id"]
+    body = client.get(f"/api/v1/backtests/{run_id}/analysis").json()
+    assert body["trade_count"] == 0
+    assert body["summary"]["win_rate"] is None
+    assert body["cumulative_realized_pnl"] == []
+
+
+def test_missing_analysis_returns_404(client: TestClient) -> None:
+    response = client.get(f"/api/v1/backtests/{uuid4()}/analysis")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Backtest run not found"}
+
+
+@pytest.mark.parametrize("run_status", ["pending", "running", "failed"])
+def test_non_completed_analysis_returns_stable_409(
+    client: TestClient, service: FakeService, run_status: str
+) -> None:
+    candidate = BacktestRun.create("watchlist_entry", date(2026, 1, 1), date(2026, 1, 2))
+    if run_status in {"running", "failed"}:
+        candidate = candidate.start()
+    if run_status == "failed":
+        candidate = candidate.fail("failure")
+    service.runs[candidate.id] = candidate
+    response = client.get(f"/api/v1/backtests/{candidate.id}/analysis")
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Backtest analysis is available only for completed runs"}
 
 
 @pytest.mark.parametrize("version", [None, "1"])

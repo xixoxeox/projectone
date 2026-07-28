@@ -4,14 +4,32 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from screener.api.backtests.dependencies import BacktestServiceDependency
 from screener.api.backtests.schemas import (
+    BacktestAnalysisResponse,
     BacktestCreateRequest,
     BacktestResponse,
     BacktestTradeResponse,
 )
 from screener.modules.backtest.domain import BacktestExitReason
-from screener.modules.backtest.service import BacktestNotFoundError, BacktestRangeError
+from screener.modules.backtest.service import (
+    BacktestAnalysisUnavailableError,
+    BacktestNotFoundError,
+    BacktestRangeError,
+)
 
 router = APIRouter(prefix="/backtests", tags=["backtests"])
+
+
+@router.get("/{run_id}/analysis", response_model=BacktestAnalysisResponse)
+async def get_backtest_analysis(
+    run_id: UUID, service: BacktestServiceDependency
+) -> BacktestAnalysisResponse:
+    try:
+        analysis = await service.analyze(run_id)
+    except BacktestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Backtest run not found") from exc
+    except BacktestAnalysisUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return BacktestAnalysisResponse.model_validate(analysis)
 
 
 @router.post("", response_model=BacktestResponse, status_code=status.HTTP_201_CREATED)

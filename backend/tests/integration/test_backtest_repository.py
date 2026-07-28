@@ -1,6 +1,6 @@
 import os
 from collections.abc import AsyncIterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -102,6 +102,85 @@ async def test_run_metadata_and_trade_round_trip_with_exact_decimals(session: As
     assert restored.exit_price == Decimal("130.87654321")
     assert restored.net_pnl == Decimal("52.63340031")
     assert restored.exit_reason is BacktestExitReason.TAKE_PROFIT
+
+
+async def test_analysis_repository_uses_canonical_exit_symbol_uuid_order(
+    session: AsyncSession,
+) -> None:
+    completed = run().start().complete({})
+    repository = BacktestRepository(session)
+    await repository.save(completed)
+    same_exit = date(2026, 2, 10)
+    session.add_all(
+        [
+            trade_record(
+                completed.id,
+                id=UUID(int=9),
+                symbol="AAA",
+                signal_date=date(2026, 1, 4),
+                entry_date=date(2026, 2, 1),
+                exit_date=date(2026, 2, 11),
+            ),
+            trade_record(
+                completed.id,
+                id=UUID(int=3),
+                symbol="BBB",
+                signal_date=date(2026, 1, 3),
+                entry_date=date(2026, 2, 1),
+                exit_date=same_exit,
+            ),
+            trade_record(
+                completed.id,
+                id=UUID(int=2),
+                symbol="AAA",
+                signal_date=date(2026, 1, 2),
+                entry_date=date(2026, 2, 1),
+                exit_date=same_exit,
+            ),
+            trade_record(
+                completed.id,
+                id=UUID(int=1),
+                symbol="AAA",
+                signal_date=date(2026, 1, 1),
+                entry_date=date(2026, 2, 1),
+                exit_date=same_exit,
+            ),
+        ]
+    )
+    await session.commit()
+    restored = await repository.list_all_trades_for_analysis(completed.id)
+    assert [item.id.int for item in restored] == [1, 2, 3, 9]
+    assert restored[0].net_pnl == Decimal("52.63340031")
+
+
+async def test_completed_analysis_has_no_500_trade_limit(session: AsyncSession) -> None:
+    completed = run().start().complete({})
+    repository = BacktestRepository(session)
+    await repository.save(completed)
+    base = date(2020, 1, 1)
+    session.add_all(
+        [
+            trade_record(
+                completed.id,
+                id=UUID(int=index + 1),
+                symbol="BULK",
+                signal_date=base + timedelta(days=index),
+                entry_date=base + timedelta(days=index + 1),
+                exit_date=base + timedelta(days=index + 2),
+                net_pnl=Decimal("0.00000001"),
+            )
+            for index in range(501)
+        ]
+    )
+    await session.commit()
+    service = BacktestService(
+        repository, DatabaseBacktestExecutor(session, WatchlistEntryStrategy(session)), 30
+    )
+    analysis = await service.analyze(completed.id)
+    assert analysis.trade_count == 501
+    assert analysis.summary.net_profit == Decimal("0.00000501")
+    assert len(analysis.cumulative_realized_pnl) == 501
+    assert analysis.cumulative_realized_pnl[-1].cumulative_net_pnl == Decimal("0.00000501")
 
 
 async def test_trade_cascade_delete(session: AsyncSession) -> None:

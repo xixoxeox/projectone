@@ -3,7 +3,13 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from screener.modules.backtest.domain import BacktestExitReason, BacktestRun, BacktestTrade
+from screener.modules.backtest.analysis import BacktestAnalysis, analyze_backtest_trades
+from screener.modules.backtest.domain import (
+    BacktestExitReason,
+    BacktestRun,
+    BacktestStatus,
+    BacktestTrade,
+)
 from screener.modules.backtest.executor import (
     BacktestExecutionError,
     BacktestExecutor,
@@ -17,6 +23,10 @@ class BacktestNotFoundError(LookupError):
 
 
 class BacktestRangeError(ValueError):
+    pass
+
+
+class BacktestAnalysisUnavailableError(RuntimeError):
     pass
 
 
@@ -80,3 +90,12 @@ class BacktestService:
     ) -> builtins.list[BacktestTrade]:
         await self.get(run_id)
         return await self.repository.list_trades(run_id, limit, offset, symbol, exit_reason)
+
+    async def analyze(self, run_id: UUID) -> BacktestAnalysis:
+        run = await self.get(run_id)
+        if run.status is not BacktestStatus.COMPLETED:
+            raise BacktestAnalysisUnavailableError(
+                "Backtest analysis is available only for completed runs"
+            )
+        trades = await self.repository.list_all_trades_for_analysis(run_id)
+        return analyze_backtest_trades(run_id, trades)

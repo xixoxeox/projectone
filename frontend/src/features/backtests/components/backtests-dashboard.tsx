@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getBacktest, listBacktests } from "../api";
 import type { BacktestRun } from "../types";
 import { BacktestComparison } from "./backtest-comparison";
+import { BacktestAnalysis } from "./backtest-analysis";
 import { BacktestCreateForm } from "./backtest-create-form";
 import { BacktestRunDetail } from "./backtest-run-detail";
 import { BacktestRunList } from "./backtest-run-list";
@@ -60,7 +61,7 @@ export function BacktestsDashboard() {
         </Link>
       </nav>
       <header>
-        <p className="eyebrow">SPRINT 16</p>
+        <p className="eyebrow">SPRINT 17</p>
         <h1>백테스트</h1>
         <p className="muted">저장된 실행을 만들고 검토하며 비교합니다.</p>
       </header>
@@ -75,6 +76,7 @@ export function BacktestsDashboard() {
         onRetry={() => void loadRuns()}
       />
       {selected && <BacktestRunDetail run={selected} />}
+      {selected?.status === "completed" && <BacktestAnalysis runId={selected.id} />}
       <BacktestComparison runs={compared} />
     </main>
   );
