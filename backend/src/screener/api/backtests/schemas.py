@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -11,8 +11,8 @@ from screener.modules.backtest.executor import BacktestParameters
 
 
 class BacktestCreateRequest(BaseModel):
-    strategy_name: str = Field(min_length=1, max_length=100)
-    strategy_version: str | None = Field(default=None, max_length=100)
+    strategy_name: Literal["watchlist_entry"]
+    strategy_version: Literal["1"] | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     start_date: date
     end_date: date
@@ -23,19 +23,6 @@ class BacktestCreateRequest(BaseModel):
     def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
         BacktestParameters.parse(value)
         return value
-
-    @field_validator("strategy_name")
-    @classmethod
-    def validate_strategy_name(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("strategy_name must not be blank")
-        return value
-
-    @field_validator("strategy_version")
-    @classmethod
-    def normalize_strategy_version(cls, value: str | None) -> str | None:
-        return value.strip() or None if value is not None else None
 
     @field_validator("data_as_of")
     @classmethod

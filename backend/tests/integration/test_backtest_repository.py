@@ -22,10 +22,10 @@ async def test_all_metadata_survives_database_round_trip() -> None:
     data_as_of = datetime(2026, 1, 21, 12, 30, tzinfo=UTC)
     original = (
         BacktestRun.create(
-            "breakout",
+            "watchlist_entry",
             date(2026, 1, 1),
             date(2026, 1, 20),
-            "v2",
+            "1",
             {"lookback": 20, "nested": {"enabled": True}},
             data_as_of,
         )

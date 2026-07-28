@@ -11,6 +11,8 @@ from screener.modules.backtest.executor import (
     BacktestExecutor,
     BacktestParameters,
     DatabaseBacktestExecutor,
+    UnsupportedBacktestStrategy,
+    validate_strategy_contract,
 )
 from screener.modules.backtest.repository import BacktestRepository
 from screener.modules.backtest.service import BacktestService
@@ -35,5 +37,7 @@ __all__ = [
     "BacktestStrategy",
     "BacktestTrade",
     "DatabaseBacktestExecutor",
+    "UnsupportedBacktestStrategy",
+    "validate_strategy_contract",
     "WatchlistEntryStrategy",
 ]

@@ -4,7 +4,11 @@ from typing import Any
 from uuid import UUID
 
 from screener.modules.backtest.domain import BacktestExitReason, BacktestRun, BacktestTrade
-from screener.modules.backtest.executor import BacktestExecutionError, BacktestExecutor
+from screener.modules.backtest.executor import (
+    BacktestExecutionError,
+    BacktestExecutor,
+    validate_strategy_contract,
+)
 from screener.modules.backtest.repository import BacktestRepository
 
 
@@ -33,6 +37,9 @@ class BacktestService:
         parameters: dict[str, Any] | None = None,
         data_as_of: datetime | None = None,
     ) -> BacktestRun:
+        strategy_name, strategy_version = validate_strategy_contract(
+            strategy_name, strategy_version
+        )
         if (end_date - start_date).days > self.max_range_days:
             raise BacktestRangeError(f"date range cannot exceed {self.max_range_days} days")
         run = BacktestRun.create(
