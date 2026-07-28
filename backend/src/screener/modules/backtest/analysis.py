@@ -69,10 +69,10 @@ class ExitReasonAnalysis:
     winning_trades: int
     losing_trades: int
     breakeven_trades: int
-    win_rate: Decimal
+    win_rate: Decimal | None
     net_profit: Decimal
-    average_trade_pnl: Decimal
-    average_holding_days: Decimal
+    average_trade_pnl: Decimal | None
+    average_holding_days: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -190,10 +190,10 @@ def analyze_backtest_trades(run_id: UUID, trades: list[BacktestTrade]) -> Backte
                     item.winning_trades,
                     item.losing_trades,
                     item.breakeven_trades,
-                    item.win_rate or ZERO,
+                    item.win_rate,
                     item.net_profit,
-                    item.average_trade_pnl or ZERO,
-                    item.average_holding_days or ZERO,
+                    item.average_trade_pnl,
+                    item.average_holding_days,
                 )
             )
     months = [

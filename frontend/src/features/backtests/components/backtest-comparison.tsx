@@ -1,66 +1,13 @@
-import { compareDecimal } from "../format";
-import type { BacktestRun } from "../types";
-import { METRIC_LABELS, metricValue, type ResultValue } from "./metrics";
-const KEYS = [
-  "total_signals",
-  "entered_trades",
-  "skipped_signals",
-  "win_rate",
-  "net_profit",
-  "total_return",
-  "average_holding_days",
-  "maximum_gain",
-  "maximum_loss",
-];
-function relation(own: ResultValue, other: ResultValue): string {
-  if (own == null || other == null) return "비교 불가";
-  const order = compareDecimal(own, other);
-  return order === 0 ? "같음" : order > 0 ? "더 높음" : "더 낮음";
-}
-export function BacktestComparison({ runs }: { runs: BacktestRun[] }) {
-  return (
-    <section className="panel">
-      <h2>실행 비교</h2>
-      {runs.length < 2 ? (
-        <p>완료된 서로 다른 실행 두 개를 선택하세요.</p>
-      ) : (
-        <div className="comparison">
-          {runs.map((run, index) => (
-            <article key={run.id}>
-              <h3>실행 {index + 1}</h3>
-              <p>
-                {run.start_date} – {run.end_date}
-              </p>
-              <h4>파라미터</h4>
-              <dl>
-                {Object.entries(run.parameters).map(([key, value]) => (
-                  <div key={key}>
-                    <dt>{key}</dt>
-                    <dd>{String(value)}</dd>
-                  </div>
-                ))}
-              </dl>
-              <h4>지표</h4>
-              <dl>
-                {KEYS.map((key) => {
-                  const own = run.result?.[key as keyof typeof run.result];
-                  const other =
-                    runs[1 - index].result?.[key as keyof typeof run.result];
-                  return (
-                    <div key={key}>
-                      <dt>{METRIC_LABELS[key]}</dt>
-                      <dd>
-                        {metricValue(key, own)}{" "}
-                        <small>({relation(own, other)}; 설명적 비교)</small>
-                      </dd>
-                    </div>
-                  );
-                })}
-              </dl>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
+import { useEffect, useState } from "react";
+import { cachedBacktestAnalysis, loadBacktestAnalysis } from "../analysis-cache";
+import { compareDecimal, displayDecimal, money, percent } from "../format";
+import type { BacktestAnalysis, BacktestRun } from "../types";
+import { METRIC_LABELS, metricValue } from "./metrics";
+const LEGACY_KEYS=["total_signals","entered_trades","skipped_signals","win_rate","net_profit","total_return","average_holding_days","maximum_gain","maximum_loss"];
+const METRICS = [["trade_count","거래 수","plain"],["winning_trades","수익 거래","plain"],["losing_trades","손실 거래","plain"],["breakeven_trades","손익분기 거래","plain"],["win_rate","승률","percent"],["net_profit","순이익","money"],["average_trade_pnl","평균 거래 손익","money"],["average_win","평균 수익","money"],["average_loss","평균 손실","money"],["largest_win","최대 수익","money"],["largest_loss","최대 손실","money"],["profit_factor","손익비","plain"],["average_holding_days","평균 보유일","plain"],["max_consecutive_wins","최대 연속 수익","plain"],["max_consecutive_losses","최대 연속 손실","plain"],["max_realized_pnl_drawdown","최대 실현 손익 낙폭","money"]] as const;
+type Value=string|number|null;
+const values=(a:BacktestAnalysis)=>({...a.summary,trade_count:a.trade_count}) as unknown as Record<string,Value>;
+function relation(a:Value,b:Value){if(a==null||b==null)return "비교 불가";const order=compareDecimal(a,b);return order===0?"같음":order>0?"더 높음":"더 낮음"}
+function format(value:Value,kind:string){return kind==="money"?money(value):kind==="percent"?percent(value):displayDecimal(value)}
+function AnalysisColumn({run,other,otherRun}:{run:BacktestRun;other:BacktestAnalysis|null;otherRun:BacktestRun}){const[analysis,setAnalysis]=useState<BacktestAnalysis|null>(cachedBacktestAnalysis(run.id)??null),[error,setError]=useState(false),[retry,setRetry]=useState(0);useEffect(()=>{let active=true;setError(false);loadBacktestAnalysis(run.id).then(result=>{if(active)setAnalysis(result)}).catch(()=>{if(active)setError(true)});return()=>{active=false}},[run.id,retry]);return <article aria-label={`실행 ${run.id} 분석 비교`}><h3>실행 {run.id}</h3><p>{run.start_date} – {run.end_date}</p><h4>파라미터</h4><dl>{Object.entries(run.parameters).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl><h4>기존 실행 지표</h4><dl>{LEGACY_KEYS.map(key=>{const own=run.result?.[key as keyof typeof run.result]??null,peer=otherRun.result?.[key as keyof typeof otherRun.result]??null;return <div key={key}><dt>{METRIC_LABELS[key]}</dt><dd>{metricValue(key,own)} <small>({relation(own,peer)}; 설명적 비교)</small></dd></div>})}</dl>{error?<><p role="alert">이 실행의 분석을 불러오지 못했습니다.</p><button onClick={()=>setRetry(x=>x+1)}>분석 다시 시도</button></>:!analysis?<p aria-busy="true">이 실행의 분석을 불러오는 중입니다.</p>:<dl>{METRICS.map(([key,label,kind])=>{const own=values(analysis)[key],peer=other?values(other)[key]:null;return <div key={key}><dt>{label}</dt><dd>{format(own,kind)} <small>({relation(own,peer)}; 설명적 비교)</small></dd></div>})}</dl>}</article>}
+export function BacktestComparison({runs}:{runs:BacktestRun[]}){const[loaded,setLoaded]=useState<Record<string,BacktestAnalysis>>({});useEffect(()=>{let active=true;for(const run of runs)loadBacktestAnalysis(run.id).then(a=>{if(active)setLoaded(current=>({...current,[run.id]:a}))}).catch(()=>undefined);return()=>{active=false}},[runs]);return <section className="panel"><h2>실현 거래 분석 비교</h2><p className="muted">두 완료 실행의 저장된 실현 거래를 설명적으로 비교합니다. 통계적 유의성을 주장하지 않으며 높고 낮음은 우열을 뜻하지 않습니다.</p>{runs.length<2?<p>완료된 서로 다른 실행 두 개를 선택하세요.</p>:<div className="comparison">{runs.map((run,index)=><AnalysisColumn key={run.id} run={run} otherRun={runs[1-index]} other={loaded[runs[1-index].id]??cachedBacktestAnalysis(runs[1-index].id)??null}/>)}</div>}</section>}

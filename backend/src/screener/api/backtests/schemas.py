@@ -132,10 +132,10 @@ class ExitReasonAnalysisResponse(_AnalysisModel):
     winning_trades: int
     losing_trades: int
     breakeven_trades: int
-    win_rate: Decimal
+    win_rate: Decimal | None
     net_profit: Decimal
-    average_trade_pnl: Decimal
-    average_holding_days: Decimal
+    average_trade_pnl: Decimal | None
+    average_holding_days: Decimal | None
 
 
 class MonthAnalysisResponse(_AnalysisModel):
