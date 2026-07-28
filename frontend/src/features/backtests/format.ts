@@ -1,0 +1,5 @@
+export const displayDecimal=(value:string|number|null|undefined)=>value===null||value===undefined?"—":String(value).replace(/(\.\d*?[1-9])0+$|\.0+$/,"$1");
+export const money=(value:string|number|null|undefined)=>value===null||value===undefined?"—":`${displayDecimal(value)} 원`;
+export const percent=(value:string|number|null|undefined)=>value===null||value===undefined?"—":`${decimalTimes100(String(value))}%`;
+function decimalTimes100(value:string){const negative=value.startsWith("-");const raw=negative?value.slice(1):value;const [whole,fraction=""]=raw.split(".");const digits=(whole+fraction).replace(/^0+(?=\d)/,"")||"0";const scale=fraction.length-2;let output;if(scale<=0)output=digits+"0".repeat(-scale);else output=`${digits.slice(0,-scale)||"0"}.${digits.slice(-scale).padStart(scale,"0")}`;return `${negative?"-":""}${displayDecimal(output)}`}
+export const dateTime=(value:string|null)=>value?new Intl.DateTimeFormat("ko-KR",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)):"—";
