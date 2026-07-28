@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date
 from typing import cast
 from uuid import UUID
@@ -34,14 +35,16 @@ class Executor:
         return BacktestExecutionResult({"trades": 2})
 
 
-@pytest.mark.asyncio
-async def test_service_executes_and_completes_run() -> None:
-    repository = MemoryRepository()
-    service = BacktestService(cast(BacktestRepository, repository), Executor(), 30)
-    run = await service.create("breakout", date(2025, 1, 1), date(2025, 1, 10))
-    assert run.status is BacktestStatus.COMPLETED
-    assert run.result == {"trades": 2}
-    assert await service.get(run.id) == run
+def test_service_executes_and_completes_run() -> None:
+    async def exercise() -> None:
+        repository = MemoryRepository()
+        service = BacktestService(cast(BacktestRepository, repository), Executor(), 30)
+        run = await service.create("breakout", date(2025, 1, 1), date(2025, 1, 10))
+        assert run.status is BacktestStatus.COMPLETED
+        assert run.result == {"trades": 2}
+        assert await service.get(run.id) == run
+
+    asyncio.run(exercise())
 
 
 def test_domain_rejects_unguarded_transition() -> None:

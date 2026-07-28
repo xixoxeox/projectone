@@ -14,7 +14,14 @@ async def create_backtest(
     request: BacktestCreateRequest, service: BacktestServiceDependency
 ) -> BacktestResponse:
     try:
-        run = await service.create(request.strategy_name, request.start_date, request.end_date)
+        run = await service.create(
+            request.strategy_name,
+            request.start_date,
+            request.end_date,
+            request.strategy_version,
+            request.parameters,
+            request.data_as_of,
+        )
     except (ValueError, BacktestRangeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return BacktestResponse.model_validate(run)

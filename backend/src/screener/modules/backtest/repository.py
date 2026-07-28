@@ -17,11 +17,15 @@ class BacktestRepository:
             record = BacktestRunRecord(id=run.id)
             self.session.add(record)
         record.strategy_name = run.strategy_name
+        record.strategy_version = run.strategy_version
+        record.parameters = run.parameters
         record.start_date = run.start_date
         record.end_date = run.end_date
+        record.data_as_of = run.data_as_of
         record.status = run.status
         record.result = run.result
-        record.error_message = run.error_message
+        record.failure_code = run.failure_code
+        record.failure_message = run.failure_message
         record.started_at = run.started_at
         record.completed_at = run.completed_at
         record.created_at = run.created_at
@@ -43,12 +47,16 @@ class BacktestRepository:
         return BacktestRun(
             id=record.id,
             strategy_name=record.strategy_name,
+            strategy_version=record.strategy_version,
+            parameters=record.parameters,
             start_date=record.start_date,
             end_date=record.end_date,
+            data_as_of=record.data_as_of,
             status=BacktestStatus(record.status),
             created_at=record.created_at,
             started_at=record.started_at,
             completed_at=record.completed_at,
             result=record.result,
-            error_message=record.error_message,
+            failure_code=record.failure_code,
+            failure_message=record.failure_message,
         )

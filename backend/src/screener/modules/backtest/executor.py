@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from screener.modules.backtest.domain import BacktestRun
@@ -6,7 +6,7 @@ from screener.modules.backtest.domain import BacktestRun
 
 @dataclass(frozen=True, slots=True)
 class BacktestExecutionResult:
-    metrics: dict[str, Any]
+    metrics: dict[str, Any] = field(default_factory=dict)
 
 
 class BacktestExecutor(Protocol):
@@ -15,6 +15,4 @@ class BacktestExecutor(Protocol):
 
 class PlaceholderBacktestExecutor:
     async def execute(self, run: BacktestRun) -> BacktestExecutionResult:
-        return BacktestExecutionResult(
-            metrics={"strategy_name": run.strategy_name, "trades": 0, "total_return": 0.0}
-        )
+        return BacktestExecutionResult()

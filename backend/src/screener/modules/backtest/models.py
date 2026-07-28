@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, CheckConstraint, Date, DateTime, Enum, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from screener.modules.backtest.domain import BacktestStatus
@@ -15,8 +16,13 @@ class BacktestRunRecord(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     strategy_name: Mapped[str] = mapped_column(String(100), index=True)
+    strategy_version: Mapped[str | None] = mapped_column(String(100))
+    parameters: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), default=dict
+    )
     start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date] = mapped_column(Date)
+    data_as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[BacktestStatus] = mapped_column(
         Enum(
             BacktestStatus,
@@ -26,7 +32,8 @@ class BacktestRunRecord(Base):
         index=True,
     )
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    error_message: Mapped[str | None] = mapped_column(Text)
+    failure_code: Mapped[str | None] = mapped_column(String(100))
+    failure_message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
