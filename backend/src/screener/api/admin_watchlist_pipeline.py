@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from screener.modules.identity.presentation.dependencies import AdminUser
 from screener.modules.market.infrastructure.models import WatchlistPipelineExecution
 from screener.modules.market.pipeline import (
-    DailyWatchlistPipeline,
     PipelineExecutionRepository,
     PipelineResult,
 )
+from screener.modules.notifications.pipeline import PipelineRunner
 from screener.shared.database import get_db_session
 
 router = APIRouter(prefix="/admin/watchlist", tags=["admin-watchlist-pipeline"])
@@ -26,8 +26,8 @@ class ExecutionResponse(PipelineResult):
     pass
 
 
-def get_pipeline(request: Request) -> DailyWatchlistPipeline:
-    return cast(DailyWatchlistPipeline, request.app.state.daily_watchlist_pipeline)
+def get_pipeline(request: Request) -> PipelineRunner:
+    return cast(PipelineRunner, request.app.state.daily_watchlist_pipeline)
 
 
 def response(record: WatchlistPipelineExecution) -> ExecutionResponse:
@@ -48,7 +48,7 @@ def response(record: WatchlistPipelineExecution) -> ExecutionResponse:
 @router.post("/run", response_model=ExecutionResponse)
 async def run(
     _: AdminUser,
-    pipeline: Annotated[DailyWatchlistPipeline, Depends(get_pipeline)],
+    pipeline: Annotated[PipelineRunner, Depends(get_pipeline)],
     body: RunRequest | None = None,
 ) -> PipelineResult:
     result = await pipeline.run(None if body is None else body.trading_date)

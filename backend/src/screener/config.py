@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     watchlist_job_minute: int = Field(default=20, ge=0, le=59)
     watchlist_job_timezone: str = "Asia/Seoul"
     watchlist_job_misfire_grace_seconds: int = Field(default=3600, gt=0)
+    slack_webhook_url: SecretStr | None = None
+    notification_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    notification_max_retries: int = Field(default=2, ge=0, le=5)
     sync_history_years: int = Field(default=3, ge=1, le=20)
     sync_batch_size: int = Field(default=500, ge=10, le=5000)
 
