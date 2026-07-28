@@ -192,6 +192,19 @@ class PortfolioBacktestExecutor:
             await self.strategy.generate_signals(run), key=lambda s: (s.signal_date, s.symbol)
         )
         symbols = sorted({s.symbol for s in signals})
+        # The calendar is market-wide rather than signal-derived, so a zero-signal run
+        # still has a coherent all-cash equity curve.
+        dates = list(
+            await self.session.scalars(
+                select(DailyBarRecord.trading_date)
+                .where(
+                    DailyBarRecord.trading_date >= run.start_date,
+                    DailyBarRecord.trading_date <= run.end_date,
+                )
+                .distinct()
+                .order_by(DailyBarRecord.trading_date)
+            )
+        )
         rows = (
             list(
                 await self.session.scalars(
@@ -219,7 +232,6 @@ class PortfolioBacktestExecutor:
             by_date.setdefault(row.trading_date, {})[row.symbol] = DailyBar(
                 row.symbol, row.trading_date, row.open, row.high, row.low, row.close
             )
-        dates = sorted(by_date)
         entry_events: dict[date, list[BacktestSignal]] = {}
         skips: dict[str, int] = {}
         for signal in signals:
@@ -242,8 +254,53 @@ class PortfolioBacktestExecutor:
         snapshots: list[PortfolioSnapshot] = []
         maximum_open = 0
         utilization_sum = ZERO
+
+        def close_position(
+            symbol: str,
+            position: OpenPosition,
+            day: date,
+            raw_exit: Decimal,
+            reason: BacktestExitReason,
+        ) -> None:
+            exit_price = raw_exit * (1 - p.trading.slippage_rate)
+            sell_notional = exit_price * position.quantity
+            sell_commission = sell_notional * p.trading.commission_rate
+            tax = sell_notional * p.trading.sell_tax_rate
+            state.cash += sell_notional - sell_commission - tax
+            gross = (exit_price - position.entry_price) * position.quantity
+            commission = position.buy_commission + sell_commission
+            net = gross - commission - tax
+            state.realized_pnl += net
+            trades.append(
+                BacktestTrade(
+                    uuid4(),
+                    run.id,
+                    symbol,
+                    position.signal.signal_date,
+                    position.entry_date,
+                    position.entry_price.quantize(MONEY),
+                    position.quantity,
+                    day,
+                    exit_price.quantize(MONEY),
+                    reason,
+                    gross.quantize(MONEY),
+                    commission.quantize(MONEY),
+                    tax.quantize(MONEY),
+                    (
+                        (
+                            (position.entry_price - position.entry_raw_price)
+                            + (raw_exit - exit_price)
+                        )
+                        * position.quantity
+                    ).quantize(MONEY),
+                    net.quantize(MONEY),
+                    position.holding_days,
+                )
+            )
+            del state.positions[symbol]
+
         for day in dates:
-            bars = by_date[day]
+            bars = by_date.get(day, {})
             final = day == dates[-1]
             # Existing positions exit before any entries. A missing bar carries its prior close.
             for symbol in sorted(list(state.positions)):
@@ -261,86 +318,68 @@ class PortfolioBacktestExecutor:
                     )
                 if bar is None:
                     continue
-                position.last_close = bar.close
                 position.holding_days += 1
                 terms = exit_terms(position, bar, p.trading, final)
                 if terms is None:
                     continue
                 reason, raw_exit = terms
-                exit_price = raw_exit * (1 - p.trading.slippage_rate)
-                sell_notional = exit_price * position.quantity
-                sell_commission = sell_notional * p.trading.commission_rate
-                tax = sell_notional * p.trading.sell_tax_rate
-                state.cash += sell_notional - sell_commission - tax
-                gross = (exit_price - position.entry_price) * position.quantity
-                commission = position.buy_commission + sell_commission
-                net = gross - commission - tax
-                state.realized_pnl += net
-                trades.append(
-                    BacktestTrade(
-                        uuid4(),
-                        run.id,
-                        symbol,
-                        position.signal.signal_date,
-                        position.entry_date,
-                        position.entry_price.quantize(MONEY),
-                        position.quantity,
-                        day,
-                        exit_price.quantize(MONEY),
-                        reason,
-                        gross.quantize(MONEY),
-                        commission.quantize(MONEY),
-                        tax.quantize(MONEY),
-                        (
-                            (
-                                (position.entry_price - position.entry_raw_price)
-                                + (raw_exit - exit_price)
-                            )
-                            * position.quantity
-                        ).quantize(MONEY),
-                        net.quantize(MONEY),
-                        position.holding_days,
+                close_position(symbol, position, day, raw_exit, reason)
+            # Surviving positions intentionally retain yesterday's close while entries
+            # are sized. Today's close is not known at the opening event boundary.
+            for signal in sorted(
+                entry_events.get(day, []), key=lambda s: (s.signal_date, s.symbol)
+            ):
+                skip_reason: PortfolioSkipReason | None = None
+                if signal.symbol in state.positions:
+                    skip_reason = PortfolioSkipReason.DUPLICATE_SYMBOL
+                elif len(state.positions) >= p.max_open_positions:
+                    skip_reason = PortfolioSkipReason.MAX_OPEN_POSITIONS
+                bar = bars[signal.symbol]
+                effective = bar.open * (1 + p.trading.slippage_rate)
+                if skip_reason is None:
+                    equity = state.equity()
+                    buffer = p.initial_capital * p.minimum_cash_buffer_pct
+                    quantity, skip_reason = affordable_quantity(
+                        equity * p.position_size_pct,
+                        state.cash,
+                        buffer,
+                        effective,
+                        p.trading.commission_rate,
                     )
+                else:
+                    quantity = 0
+                if skip_reason is not None:
+                    skips[skip_reason.value] = skips.get(skip_reason.value, 0) + 1
+                    continue
+                commission = effective * quantity * p.trading.commission_rate
+                required = effective * quantity + commission
+                if required > state.cash:
+                    skips[PortfolioSkipReason.INSUFFICIENT_CASH.value] = (
+                        skips.get(PortfolioSkipReason.INSUFFICIENT_CASH.value, 0) + 1
+                    )
+                    continue
+                state.cash -= required
+                state.positions[signal.symbol] = OpenPosition(
+                    signal, day, bar.open, effective, quantity, commission, effective
                 )
-                del state.positions[symbol]
-            if not final:
-                for signal in sorted(
-                    entry_events.get(day, []), key=lambda s: (s.signal_date, s.symbol)
-                ):
-                    skip_reason: PortfolioSkipReason | None = None
-                    if signal.symbol in state.positions:
-                        skip_reason = PortfolioSkipReason.DUPLICATE_SYMBOL
-                    elif len(state.positions) >= p.max_open_positions:
-                        skip_reason = PortfolioSkipReason.MAX_OPEN_POSITIONS
-                    bar = bars[signal.symbol]
-                    effective = bar.open * (1 + p.trading.slippage_rate)
-                    if skip_reason is None:
-                        equity = state.equity()
-                        buffer = p.initial_capital * p.minimum_cash_buffer_pct
-                        quantity, skip_reason = affordable_quantity(
-                            equity * p.position_size_pct,
-                            state.cash,
-                            buffer,
-                            effective,
-                            p.trading.commission_rate,
+                maximum_open = max(maximum_open, len(state.positions))
+            if final:
+                # A final-day next-bar entry is auditable: enter at the open and force
+                # liquidate at that day's close, including all normal costs.
+                for symbol in sorted(list(state.positions)):
+                    position = state.positions[symbol]
+                    if position.entry_date == day:
+                        close_position(
+                            symbol,
+                            position,
+                            day,
+                            bars[symbol].close,
+                            BacktestExitReason.END_OF_PERIOD,
                         )
-                    else:
-                        quantity = 0
-                    if skip_reason is not None:
-                        skips[skip_reason.value] = skips.get(skip_reason.value, 0) + 1
-                        continue
-                    commission = effective * quantity * p.trading.commission_rate
-                    required = effective * quantity + commission
-                    if required > state.cash:
-                        skips[PortfolioSkipReason.INSUFFICIENT_CASH.value] = (
-                            skips.get(PortfolioSkipReason.INSUFFICIENT_CASH.value, 0) + 1
-                        )
-                        continue
-                    state.cash -= required
-                    state.positions[signal.symbol] = OpenPosition(
-                        signal, day, bar.open, effective, quantity, commission, bar.close
-                    )
-                    maximum_open = max(maximum_open, len(state.positions))
+            # Only after entry sizing is complete may today's closing marks become known.
+            for symbol, position in state.positions.items():
+                if bar := bars.get(symbol):
+                    position.last_close = bar.close
             market = sum((pos.last_close * pos.quantity for pos in state.positions.values()), ZERO)
             unrealized = sum(
                 ((pos.last_close * pos.quantity) - pos.cost for pos in state.positions.values()),

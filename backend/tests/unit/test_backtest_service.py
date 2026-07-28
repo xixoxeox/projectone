@@ -34,6 +34,9 @@ class MemoryRepository:
         self.analysis_reads += 1
         return []
 
+    async def list_portfolio_snapshots(self, run_id: UUID):
+        return []
+
 
 class Executor:
     async def execute(self, run: BacktestRun) -> BacktestExecutionResult:
@@ -85,5 +88,26 @@ def test_service_does_not_read_trades_for_non_completed_analysis() -> None:
         with pytest.raises(RuntimeError, match="available only for completed runs"):
             await service.analyze(pending.id)
         assert repository.analysis_reads == 0
+
+    asyncio.run(exercise())
+
+
+def test_malformed_completed_portfolio_result_returns_stable_error() -> None:
+    async def exercise() -> None:
+        repository = MemoryRepository()
+        run = (
+            BacktestRun.create(
+                "watchlist_entry",
+                date(2025, 1, 1),
+                date(2025, 1, 2),
+                parameters={"execution_mode": "portfolio"},
+            )
+            .start()
+            .complete({"initial_capital": "1000.00000000"})
+        )
+        repository.runs[run.id] = run
+        service = BacktestService(cast(BacktestRepository, repository), Executor(), 30)
+        with pytest.raises(RuntimeError, match="result is incomplete"):
+            await service.portfolio(run.id)
 
     asyncio.run(exercise())

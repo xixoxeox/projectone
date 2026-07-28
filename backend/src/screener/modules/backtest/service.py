@@ -110,4 +110,17 @@ class BacktestService:
             raise PortfolioUnavailableError("Portfolio data is available only for completed runs")
         if run.execution_mode.value != "portfolio":
             raise PortfolioUnavailableError("Portfolio data is unavailable for independent runs")
+        required = {
+            "initial_capital",
+            "final_equity",
+            "final_cash",
+            "net_profit",
+            "total_return",
+            "max_drawdown",
+            "max_drawdown_pct",
+            "maximum_open_positions_used",
+            "average_capital_utilization",
+        }
+        if run.result is None or not required <= run.result.keys():
+            raise PortfolioUnavailableError("Portfolio result is incomplete")
         return run, await self.repository.list_portfolio_snapshots(run_id)
