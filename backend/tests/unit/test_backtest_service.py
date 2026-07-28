@@ -106,7 +106,7 @@ class Executor:
 
 async def test_success_is_durable_and_preserves_nested_metadata() -> None:
     repository, executor = FakeRepository(), Executor()
-    service = BacktestService(repository, executor, clock=lambda: NOW)  # type: ignore[arg-type]
+    service = BacktestService(repository, executor, max_range_days=1825, clock=lambda: NOW)  # type: ignore[arg-type]
     parameters = {
         "entry": "next_open",
         "risk": {"stop_loss_pct": 5},
@@ -127,7 +127,7 @@ async def test_success_is_durable_and_preserves_nested_metadata() -> None:
 
 async def test_executor_failure_is_safe_and_persisted() -> None:
     repository, executor = FakeRepository(), Executor(RuntimeError("database password secret"))
-    service = BacktestService(repository, executor, clock=lambda: NOW)  # type: ignore[arg-type]
+    service = BacktestService(repository, executor, max_range_days=1825, clock=lambda: NOW)  # type: ignore[arg-type]
     with pytest.raises(BacktestExecutionError, match="Backtest execution failed"):
         await service.create("breakout", None, date(2025, 1, 1), date(2025, 2, 1), {}, None)
     assert repository.run and repository.run.status == BacktestStatus.FAILED

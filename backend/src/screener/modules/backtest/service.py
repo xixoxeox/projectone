@@ -25,7 +25,7 @@ class BacktestService:
         self,
         repository: BacktestRepository,
         executor: BacktestExecutor,
-        max_range_days: int = 1825,
+        max_range_days: int,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._repository = repository
