@@ -271,7 +271,6 @@ def test_scheduler_registration_and_test_environment_policy(
         ("post", "/api/v1/admin/sync/stocks"),
         ("post", "/api/v1/admin/sync/daily-bars"),
         ("post", "/api/v1/admin/sync/all"),
-        ("post", "/api/v1/admin/sync/watchlist/run"),
         ("get", "/api/v1/admin/sync/status"),
         ("get", "/api/v1/admin/sync/history"),
     ],

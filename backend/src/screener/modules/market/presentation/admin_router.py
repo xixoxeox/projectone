@@ -5,14 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from screener.modules.identity.presentation.dependencies import AdminUser
 from screener.modules.market.infrastructure.repositories import SyncJobRepository
-from screener.modules.market.pipeline import PipelineResult, TriggerType
 from screener.modules.market.presentation.schemas import (
     SyncJobRunResponse,
     SyncJobStatusResponse,
     SyncResultResponse,
 )
 from screener.modules.market.sync import SyncCoordinator
-from screener.modules.notifications.pipeline import NotificationPublishingPipeline
 from screener.shared.database import get_db_session
 
 router = APIRouter(prefix="/admin/sync", tags=["admin-sync"])
@@ -21,19 +19,6 @@ Session = Annotated[AsyncSession, Depends(get_db_session)]
 
 def coordinator(request: Request) -> SyncCoordinator:
     return cast(SyncCoordinator, request.app.state.sync_coordinator)
-
-
-def watchlist_pipeline(request: Request) -> NotificationPublishingPipeline:
-    return cast(NotificationPublishingPipeline, request.app.state.notification_publishing_pipeline)
-
-
-@router.post("/watchlist/run")
-async def run_watchlist(
-    _: AdminUser,
-    pipeline: Annotated[NotificationPublishingPipeline, Depends(watchlist_pipeline)],
-) -> PipelineResult:
-    """Generate a watchlist from the latest persisted market data."""
-    return await pipeline.run(TriggerType.MANUAL)
 
 
 @router.post("/stocks", response_model=SyncResultResponse)

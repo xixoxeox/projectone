@@ -11,6 +11,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from screener.api.admin_watchlist_pipeline import (
+    router as watchlist_pipeline_router,
+)
+from screener.api.admin_watchlist_pipeline import (
+    watchlist_pipeline,
+)
 from screener.main import app
 from screener.modules.identity.presentation.dependencies import get_current_user
 from screener.modules.market.pipeline import (
@@ -22,7 +28,6 @@ from screener.modules.market.pipeline import (
 from screener.modules.market.presentation.admin_router import (
     coordinator,
     router,
-    watchlist_pipeline,
 )
 from screener.modules.market.scheduler import build_scheduler
 from screener.modules.market.sync import SyncResult
@@ -79,7 +84,7 @@ async def test_scheduled_watchlist_does_not_duplicate_synchronization() -> None:
 
 def test_daily_pipeline_has_no_synchronization_dependency() -> None:
     parameters = signature(DailyWatchlistPipeline).parameters
-    assert set(parameters) == {"sessions", "indicators", "scanner", "ranker"}
+    assert set(parameters) == {"sessions", "indicators", "scanner", "ranker", "stale_after"}
 
 
 def test_manual_endpoint_uses_boundary_and_reaches_notification_service() -> None:
@@ -95,12 +100,12 @@ def test_manual_endpoint_uses_boundary_and_reaches_notification_service() -> Non
 
     boundary = NotificationPublishingPipeline(daily_pipeline, NotificationService(provider))
     test_app = FastAPI()
-    test_app.include_router(router, prefix="/api/v1")
+    test_app.include_router(watchlist_pipeline_router, prefix="/api/v1")
     test_app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="admin")
     test_app.dependency_overrides[watchlist_pipeline] = lambda: boundary
 
     with TestClient(test_app) as client:
-        response = client.post("/api/v1/admin/sync/watchlist/run")
+        response = client.post("/api/v1/admin/watchlist-pipeline/run")
 
     assert response.status_code == 200
     assert response.json()["trigger_type"] == TriggerType.MANUAL

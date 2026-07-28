@@ -11,6 +11,9 @@ def build_scheduler(
     stocks: StockSyncService,
     bars: DailyBarSyncService,
     pipeline: NotificationPublishingPipeline,
+    *,
+    watchlist_hour: int = 18,
+    watchlist_minute: int = 10,
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
     scheduler.add_job(
@@ -37,8 +40,8 @@ def build_scheduler(
         partial(pipeline.run, TriggerType.SCHEDULED),
         "cron",
         id="daily_watchlist",
-        hour=18,
-        minute=10,
+        hour=watchlist_hour,
+        minute=watchlist_minute,
         replace_existing=True,
         max_instances=1,
         coalesce=True,
