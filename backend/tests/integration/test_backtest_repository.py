@@ -22,16 +22,20 @@ from screener.modules.backtest.models import BacktestRunRecord, BacktestTradeRec
 from screener.modules.market.infrastructure.models import DailyBarRecord, Stock
 from screener.modules.market.watchlist.models import WatchlistEntryRecord
 
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
 pytestmark = pytest.mark.skipif(
-    not os.getenv("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL PostgreSQL database is required"
+    not TEST_DATABASE_URL, reason="a PostgreSQL test database URL is required"
 )
 
 
 @pytest.fixture
 async def session() -> AsyncSession:
-    url = os.environ["TEST_DATABASE_URL"]
+    assert TEST_DATABASE_URL is not None
+    url = TEST_DATABASE_URL
     if not url.startswith("postgresql+asyncpg://"):
-        pytest.fail("TEST_DATABASE_URL must use postgresql+asyncpg")
+        pytest.fail("PostgreSQL integration tests require postgresql+asyncpg")
+    if not url.partition("?")[0].endswith("_test"):
+        pytest.fail("PostgreSQL integration tests require a database whose name ends in _test")
     engine = create_async_engine(url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     async with sessions() as value:
@@ -207,5 +211,6 @@ async def test_constraint_failure_marks_failed_and_leaves_session_usable(
     assert persisted is not None and persisted.status is BacktestStatus.FAILED
     assert persisted.failure_code == "EXECUTION_FAILED"
     assert persisted.failure_message and "backtest_trades_pkey" in persisted.failure_message
+    assert await BacktestRepository(session).list_trades(failed.id) == []
     assert await session.scalar(select(func.count()).select_from(BacktestTradeRecord)) == 1
     assert (await session.execute(select(1))).scalar_one() == 1

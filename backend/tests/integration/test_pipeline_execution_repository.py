@@ -19,16 +19,20 @@ from screener.modules.market.pipeline import (
 )
 from screener.modules.market.pipeline.repository import WATCHLIST_PIPELINE_LOCK_NAMESPACE
 
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
 pytestmark = pytest.mark.skipif(
-    not os.getenv("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL PostgreSQL database is required"
+    not TEST_DATABASE_URL, reason="a PostgreSQL test database URL is required"
 )
 
 
 @pytest.fixture
 async def sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    url = os.environ["TEST_DATABASE_URL"]
+    assert TEST_DATABASE_URL is not None
+    url = TEST_DATABASE_URL
     if not url.startswith("postgresql+asyncpg://"):
-        pytest.fail("TEST_DATABASE_URL must use postgresql+asyncpg")
+        pytest.fail("PostgreSQL integration tests require postgresql+asyncpg")
+    if not url.partition("?")[0].endswith("_test"):
+        pytest.fail("PostgreSQL integration tests require a database whose name ends in _test")
     engine = create_async_engine(url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
