@@ -18,6 +18,7 @@ from screener.modules.backtest.repository import BacktestRepository
 class MemoryRepository:
     def __init__(self) -> None:
         self.runs: dict[UUID, BacktestRun] = {}
+        self.session = MemorySession()
 
     async def save(self, run: BacktestRun) -> BacktestRun:
         self.runs[run.id] = run
@@ -35,11 +36,24 @@ class Executor:
         return BacktestExecutionResult({"trades": 2})
 
 
+class MemoryTransaction:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+class MemorySession:
+    def begin_nested(self) -> MemoryTransaction:
+        return MemoryTransaction()
+
+
 def test_service_executes_and_completes_run() -> None:
     async def exercise() -> None:
         repository = MemoryRepository()
         service = BacktestService(cast(BacktestRepository, repository), Executor(), 30)
-        run = await service.create("breakout", date(2025, 1, 1), date(2025, 1, 10))
+        run = await service.create("watchlist_entry", date(2025, 1, 1), date(2025, 1, 10))
         assert run.status is BacktestStatus.COMPLETED
         assert run.result == {"trades": 2}
         assert await service.get(run.id) == run

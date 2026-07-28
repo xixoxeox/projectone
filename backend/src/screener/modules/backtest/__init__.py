@@ -1,20 +1,39 @@
-"""Backtest lifecycle and persistence foundation."""
+"""Deterministic persisted-market-data backtesting."""
 
-from screener.modules.backtest.domain import BacktestRun, BacktestStatus
+from screener.modules.backtest.domain import (
+    BacktestExitReason,
+    BacktestRun,
+    BacktestStatus,
+    BacktestTrade,
+)
 from screener.modules.backtest.executor import (
     BacktestExecutionResult,
     BacktestExecutor,
-    PlaceholderBacktestExecutor,
+    BacktestParameters,
+    DatabaseBacktestExecutor,
 )
 from screener.modules.backtest.repository import BacktestRepository
 from screener.modules.backtest.service import BacktestService
+from screener.modules.backtest.strategy import (
+    BacktestSignal,
+    BacktestSignalType,
+    BacktestStrategy,
+    WatchlistEntryStrategy,
+)
 
 __all__ = [
     "BacktestExecutionResult",
     "BacktestExecutor",
+    "BacktestExitReason",
+    "BacktestParameters",
     "BacktestRepository",
     "BacktestRun",
     "BacktestService",
+    "BacktestSignal",
+    "BacktestSignalType",
     "BacktestStatus",
-    "PlaceholderBacktestExecutor",
+    "BacktestStrategy",
+    "BacktestTrade",
+    "DatabaseBacktestExecutor",
+    "WatchlistEntryStrategy",
 ]
