@@ -74,6 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.sync_coordinator = SyncCoordinator(stock_sync, bar_sync)
     screening_config = SwingScreeningConfig()
+    app.state.swing_screening_config = screening_config
     pipeline = DailyWatchlistPipeline(
         SessionFactory,
         app.state.sync_coordinator,

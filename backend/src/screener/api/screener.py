@@ -1,6 +1,6 @@
 """Authenticated canonical screener metadata."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from screener.modules.identity.presentation.dependencies import CurrentUser
 from screener.modules.market.screening.swing import SETUP_ORDER, SwingScreeningConfig
@@ -9,8 +9,8 @@ router = APIRouter(prefix="/screener", tags=["screener"])
 
 
 @router.get("/definitions")
-async def definitions(_: CurrentUser) -> dict[str, object]:
-    config = SwingScreeningConfig()
+async def definitions(_: CurrentUser, request: Request) -> dict[str, object]:
+    config: SwingScreeningConfig = request.app.state.swing_screening_config
     labels = {
         "box_breakout": "박스권 돌파",
         "trend_pullback": "추세 눌림목",

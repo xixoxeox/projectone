@@ -1,10 +1,13 @@
 """Focused Sprint 19 configuration, scoring, aggregation, and ranking tests."""
 
+import asyncio
 from dataclasses import FrozenInstanceError
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
+from screener.api.screener import definitions
 from screener.modules.market.indicators.models import ScreeningResult
 from screener.modules.market.ranking.ranker import SwingCandidateRanker
 from screener.modules.market.screening.swing import (
@@ -23,6 +26,15 @@ def test_config_defaults_are_immutable_and_safe() -> None:
     assert config.snapshot()["minimum_close"] == "1000"
     with pytest.raises(FrozenInstanceError):
         config.box_lookback = 10  # type: ignore[misc]
+
+
+def test_definitions_uses_the_app_owned_canonical_config() -> None:
+    config = SwingScreeningConfig(maximum_candidates=7)
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(swing_screening_config=config))
+    )
+    response = asyncio.run(definitions(None, request))  # type: ignore[arg-type]
+    assert response["defaults"]["maximum_candidates"] == 7  # type: ignore[index]
 
 
 @pytest.mark.parametrize(

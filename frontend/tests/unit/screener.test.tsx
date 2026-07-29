@@ -1,11 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { compareDecimalStrings, formatPercent } from "@/features/screener/screener-dashboard";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { compareDecimalStrings, formatPercent, ScreenerDashboard } from "@/features/screener/screener-dashboard";
 
-describe("Sprint 19 exact financial formatting", () => {
-  it.each([["0.03","3%"],["0.00125","0.125%"],["0","0%"]])("formats %s", (value, expected) => expect(formatPercent(value)).toBe(expected));
-  it("formats missing percentages", () => expect(formatPercent(null)).toBe("—"));
-  it("compares exact large Decimal strings", () => {
-    expect(compareDecimalStrings("900719925474099312345.01", "900719925474099312345.001")).toBeGreaterThan(0);
-    expect(compareDecimalStrings("005930", "5930")).toBe(0);
-  });
+const definitions={screener_name:"multi_setup_swing",version:"1",setup_keys:["box_breakout"],setup_labels:{box_breakout:"박스권 돌파"}};
+const execution={trading_date:"2026-07-29",status:"succeeded",started_at:"start",finished_at:"finish",candidate_count:1,persisted_count:1};
+const candidate={rank:1,symbol:"005930",total_score:"91.00000000000000000001",primary_setup:"box_breakout",matched_setups:["box_breakout"],average_trading_value_20:"900719925474099312345.01",atr_pct:"0.00125",volume_ratio:"1.5",warnings:[]};
+const reply=(body:unknown,status=200)=>Promise.resolve(new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json"}}));
+function standardFetch(runStatus=200){return vi.spyOn(globalThis,"fetch").mockImplementation((input,init)=>{const url=String(input);if(url.endsWith("/screener/definitions"))return reply(definitions);if(url.endsWith("/watchlist/history"))return reply(["2026-07-28"]);if(url.endsWith("/admin/watchlist/executions/latest"))return reply(execution);if(url.endsWith("/admin/watchlist/run")&&init?.method==="POST")return reply(execution,runStatus);return reply([candidate]);});}
+
+describe("ScreenerDashboard",()=>{afterEach(cleanup);beforeEach(()=>{vi.restoreAllMocks();history.replaceState(null,"","/screener");});
+ it("loads definitions, history, execution and exact candidate presentation",async()=>{standardFetch();render(<ScreenerDashboard/>);expect(await screen.findByText("multi_setup_swing v1")).toBeVisible();expect(screen.getByText(/최근 실행일: 2026-07-29/)).toBeVisible();expect(await screen.findByText("005930")).toBeVisible();expect(screen.getByText(/ATR: 0.125%/)).toBeVisible();expect(screen.getByText(/돌파 거래량 배수: 1.5/)).toBeVisible();});
+ it("preserves leading-zero and unrelated URL state",async()=>{history.replaceState(null,"","/screener?q=005930&foreign=keep");standardFetch();render(<ScreenerDashboard/>);expect(await screen.findByDisplayValue("005930")).toBeVisible();expect(location.search).toContain("foreign=keep");expect(location.search).toContain("q=005930");});
+ it("uses HTTP status for conflict and a safe generic run error",async()=>{standardFetch(409);render(<ScreenerDashboard/>);const button=await screen.findByRole("button",{name:"오늘 스크리닝"});fireEvent.click(button);expect(await screen.findByText("이미 스크리닝이 실행 중입니다.")).toBeVisible();vi.restoreAllMocks();standardFetch(500);fireEvent.click(button);expect(await screen.findByText("스크리닝 실행에 실패했습니다.")).toBeVisible();});
+ it("disables duplicate run clicks while pending",async()=>{let resolveRun:(value:Response)=>void=()=>{};standardFetch();vi.mocked(fetch).mockImplementation((input)=>String(input).endsWith("/admin/watchlist/run")?new Promise(resolve=>{resolveRun=resolve}):String(input).endsWith("/screener/definitions")?reply(definitions):String(input).endsWith("/watchlist/history")?reply(["2026-07-28"]):String(input).endsWith("/admin/watchlist/executions/latest")?reply(execution):reply([candidate]));render(<ScreenerDashboard/>);const button=await screen.findByRole("button",{name:"오늘 스크리닝"});fireEvent.click(button);fireEvent.click(button);expect(button).toBeDisabled();resolveRun(new Response(JSON.stringify(execution),{status:200}));await waitFor(()=>expect(button).not.toBeDisabled());});
 });
+
+describe("exact helpers",()=>{it.each([["0.03","3%"],["0.00125","0.125%"],["0","0%"]])("formats %s",(value,expected)=>expect(formatPercent(value)).toBe(expected));it("formats null",()=>expect(formatPercent(null)).toBe("—"));it("compares exact large decimals",()=>expect(compareDecimalStrings("900719925474099312345.01","900719925474099312345.001")).toBeGreaterThan(0));});
