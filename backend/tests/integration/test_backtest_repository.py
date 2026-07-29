@@ -385,6 +385,11 @@ async def seed_bars(
                 is_active=True,
             )
         )
+
+    # Parent rows must exist before daily_bars FK rows are inserted.
+    await session.flush()
+
+    for symbol in symbols:
         for day, opening, close in rows:
             opening_value = Decimal(opening)
             close_value = Decimal(close)
