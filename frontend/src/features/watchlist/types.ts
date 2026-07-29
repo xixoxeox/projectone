@@ -13,14 +13,29 @@ export interface WatchlistItem {
   screener_version?: string | null;
   latest_close?: DecimalString | null;
   average_trading_value_20?: DecimalString | null;
-  latest_volume_ratio?: DecimalString | null;
-  prior5_volume_ratio?: DecimalString | null;
+  volume_ratio?: DecimalString | null;
+  prior_short_volume_ratio?: DecimalString | null;
   breakout_volume_ratio?: DecimalString | null;
   atr_pct?: DecimalString | null;
 }
 
-export interface ScreenerDefinitions { screener_name:string;screener_version:string;setups:Array<{key:string;label:string;description:string}>;defaults:Record<string,string|number>;limitations:string[] }
-export interface ScreeningExecution { execution_id?:string;trading_date:string;status:string;started_at:string;finished_at:string|null;candidate_count:number|null;persisted_count:number|null;error_code?:string|null }
+export interface ScreenerDefinitions {
+  screener_name: string;
+  screener_version: string;
+  setups: Array<{ key: string; label: string; description: string }>;
+  defaults: Record<string, string | number>;
+  limitations: string[];
+}
+export interface ScreeningExecution {
+  execution_id?: string;
+  trading_date: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  candidate_count: number | null;
+  persisted_count: number | null;
+  error_code?: string | null;
+}
 
 export interface ScreeningSnapshot {
   symbol: string;

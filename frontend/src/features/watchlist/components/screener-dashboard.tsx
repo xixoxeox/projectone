@@ -3,22 +3,361 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { compareDecimal } from "@/features/backtests/format";
-import { getLatestScreeningExecution,getScreenerDefinitions,getWatchlistByDate,getWatchlistHistory,runScreening,WatchlistApiError } from "../api";
+import {
+  getLatestScreeningExecution,
+  getScreenerDefinitions,
+  getWatchlistByDate,
+  getWatchlistHistory,
+  runScreening,
+  WatchlistApiError,
+} from "../api";
 import { formatDecimal, formatRatioPercent } from "../format";
-import type { ScreenerDefinitions,ScreeningExecution,WatchlistItem } from "../types";
-const LABELS:Record<string,string>={box_breakout:"박스권 돌파",trend_pullback:"추세 눌림목",volatility_contraction_breakout:"변동성 축소 돌파"};
-const won=(value?:string|null)=>value?`${formatDecimal(value)}원`:"—";
-export function ScreenerDashboard(){
- const router=useRouter(),params=useSearchParams(),requested=params.get("date")??"";
- const[items,setItems]=useState<WatchlistItem[]>([]),[dates,setDates]=useState<string[]>([]),[selected,setSelected]=useState(requested),[definitions,setDefinitions]=useState<ScreenerDefinitions|null>(null),[execution,setExecution]=useState<ScreeningExecution|null>(null),[state,setState]=useState<"loading"|"ready"|"error">("loading"),[retry,setRetry]=useState(0),[running,setRunning]=useState(false),[message,setMessage]=useState("");
- const[setup,setSetup]=useState(params.get("setup")??""),[search,setSearch]=useState(params.get("q")??""),[minimum,setMinimum]=useState(params.get("minScore")??"0"),[liquidity,setLiquidity]=useState(params.get("minValue")??"0"),[warningFree,setWarningFree]=useState(params.get("warningFree")==="1"),[sort,setSort]=useState(params.get("sort")??"rank");
- const load=useCallback(async()=>{const history=(await getWatchlistHistory()).slice().sort((a,b)=>b.localeCompare(a));const day=requested||history[0]||"";const [defs,latest,rows]=await Promise.all([getScreenerDefinitions(),getLatestScreeningExecution().catch(()=>null),day?getWatchlistByDate(day):Promise.resolve([])]);return{history,day,defs,latest,rows}},[requested]);
- useEffect(()=>{let active=true;setState("loading");load().then(x=>{if(active){setDates(x.history);setSelected(x.day);setDefinitions(x.defs);setExecution(x.latest);setItems(x.rows);setState("ready")}}).catch(()=>{if(active)setState("error")});return()=>{active=false}},[load,retry]);
- useEffect(()=>{setSetup(params.get("setup")??"");setSearch(params.get("q")??"");setMinimum(params.get("minScore")??"0");setLiquidity(params.get("minValue")??"0");setWarningFree(params.get("warningFree")==="1");setSort(params.get("sort")??"rank")},[params]);
- async function run(){if(running)return;setRunning(true);setMessage("");try{const completed=await runScreening();router.push(`/screener?date=${encodeURIComponent(completed.trading_date)}`);setSelected(completed.trading_date);setItems([]);setRetry(x=>x+1)}catch(error){setMessage(error instanceof WatchlistApiError&&error.status===409?"이미 스크리닝이 실행 중입니다.":"스크리닝 실행에 실패했습니다.")}finally{setRunning(false)}}
- function navigate(changes:Record<string,string>){const next=new URLSearchParams(params.toString());Object.entries(changes).forEach(([key,value])=>value&&value!=="0"&&value!=="rank"?next.set(key,value):next.delete(key));router.push(`/screener?${next.toString()}`)}
- function selectDate(day:string){setSelected(day);navigate({date:day})}
- const filtered=useMemo(()=>{const rows=items.filter(i=>(!setup||i.matched_setups?.includes(setup))&&i.symbol.includes(search.trim().toUpperCase())&&compareDecimal(i.total_score,minimum)>=0&&compareDecimal(i.average_trading_value_20??"0",liquidity)>=0&&(!warningFree||i.warnings.length===0));return rows.sort((a,b)=>sort==="score"?compareDecimal(b.total_score,a.total_score):sort==="liquidity"?compareDecimal(b.average_trading_value_20??"0",a.average_trading_value_20??"0"):sort==="symbol"?a.symbol.localeCompare(b.symbol):a.rank-b.rank)},[items,setup,search,minimum,liquidity,warningFree,sort]);
- return <main className="watchlist-shell"><nav aria-label="주요 메뉴"><Link href="/watchlist">관심 종목</Link><Link href="/backtests">백테스트</Link><Link href="/screener" aria-current="page">스크리너</Link></nav><header className="watchlist-header"><p className="eyebrow">KOSPI MULTI-SETUP</p><h1>스윙 스크리너</h1><p>기술적 조건에 따라 선별된 관찰 후보입니다. 자동 매수 신호가 아닙니다.</p><p>{definitions&&`${definitions.screener_name} v${definitions.screener_version}`} · 기준일 {selected||"—"}</p>{execution&&<dl aria-label="가장 최근 실행"><div><dt>가장 최근 실행</dt><dd>{execution.trading_date}</dd></div><div><dt>실행 상태</dt><dd>{execution.status}</dd></div><div><dt>시작/완료</dt><dd>{execution.started_at} / {execution.finished_at??"—"}</dd></div><div><dt>후보/저장</dt><dd>{execution.candidate_count??0} / {execution.persisted_count??0}</dd></div></dl>}<button disabled={running} onClick={()=>void run()}>{running?"실행 중…":"오늘 스크리닝 실행"}</button>{message&&<p role="alert">{message}</p>}</header>
- {state==="loading"&&<p role="status">스크리닝 결과를 불러오는 중…</p>}{state==="error"&&<div role="alert">결과를 불러오지 못했습니다. <button onClick={()=>setRetry(x=>x+1)}>다시 시도</button></div>}{state==="ready"&&<><section className="panel" aria-label="스크리너 필터"><label>날짜<select value={selected} onChange={e=>selectDate(e.target.value)}>{dates.map(x=><option key={x}>{x}</option>)}</select></label><label>설정<select value={setup} onChange={e=>{setSetup(e.target.value);navigate({setup:e.target.value})}}><option value="">전체</option>{definitions?.setups.map(x=><option key={x.key} value={x.key}>{x.label}</option>)}</select></label><label>최소 점수<input value={minimum} inputMode="decimal" onChange={e=>{const value=e.target.value||"0";setMinimum(value);navigate({minScore:value})}}/></label><label>최소 거래대금<input value={liquidity} inputMode="decimal" onChange={e=>{const value=e.target.value||"0";setLiquidity(value);navigate({minValue:value})}}/></label><label>종목 검색<input value={search} onChange={e=>{setSearch(e.target.value);navigate({q:e.target.value})}}/></label><label><input type="checkbox" checked={warningFree} onChange={e=>{setWarningFree(e.target.checked);navigate({warningFree:e.target.checked?"1":""})}}/>경고 없음만</label><label>정렬<select value={sort} onChange={e=>{setSort(e.target.value);navigate({sort:e.target.value})}}><option value="rank">순위</option><option value="score">점수</option><option value="liquidity">거래대금</option><option value="symbol">종목</option></select></label></section>{filtered.length===0?<p>이 날짜 또는 필터 조건에 맞는 저장 후보가 없습니다.</p>:<section className="watchlist-list" aria-label="스크리닝 후보">{filtered.map(i=><article className="watchlist-card" key={i.symbol}><Link className="card-link" href={`/watchlist/${encodeURIComponent(selected)}/${encodeURIComponent(i.symbol)}`}><h2>{i.rank}. {i.symbol}</h2><p>종합 점수 {formatDecimal(i.total_score)}</p><p><strong>{i.primary_setup?LABELS[i.primary_setup]:"기존 후보"}</strong> {(i.matched_setups??[]).map(x=>LABELS[x]).join(" · ")}</p><dl><div><dt>종가</dt><dd>{won(i.latest_close)}</dd></div><div><dt>20일 평균 거래대금</dt><dd>{won(i.average_trading_value_20)}</dd></div><div><dt>거래량 비율</dt><dd>{i.latest_volume_ratio??i.prior5_volume_ratio??i.breakout_volume_ratio??"—"}</dd></div><div><dt>ATR 비율</dt><dd>{formatRatioPercent(i.atr_pct)}</dd></div></dl><p>{i.warnings.length?`경고 ${i.warnings.length}건`:"경고 없음"}</p></Link></article>)}</section>}</>}</main>;
+import type {
+  ScreenerDefinitions,
+  ScreeningExecution,
+  WatchlistItem,
+} from "../types";
+const LABELS: Record<string, string> = {
+  box_breakout: "박스권 돌파",
+  trend_pullback: "추세 눌림목",
+  volatility_contraction_breakout: "변동성 축소 돌파",
+};
+const won = (value?: string | null) =>
+  value ? `${formatDecimal(value)}원` : "—";
+function volumeMetrics(item: WatchlistItem) {
+  if (item.primary_setup === "trend_pullback")
+    return [
+      { label: "직전 단기 거래량 비율", value: item.prior_short_volume_ratio },
+    ];
+  if (item.primary_setup === "volatility_contraction_breakout")
+    return [
+      { label: "돌파 거래량 배수", value: item.breakout_volume_ratio },
+      { label: "직전 단기 거래량 비율", value: item.prior_short_volume_ratio },
+    ];
+  return [{ label: "돌파 거래량 배수", value: item.volume_ratio }];
+}
+export function ScreenerDashboard() {
+  const router = useRouter(),
+    params = useSearchParams(),
+    requested = params.get("date") ?? "";
+  const [items, setItems] = useState<WatchlistItem[]>([]),
+    [dates, setDates] = useState<string[]>([]),
+    [selected, setSelected] = useState(requested),
+    [definitions, setDefinitions] = useState<ScreenerDefinitions | null>(null),
+    [execution, setExecution] = useState<ScreeningExecution | null>(null),
+    [state, setState] = useState<"loading" | "ready" | "error">("loading"),
+    [retry, setRetry] = useState(0),
+    [running, setRunning] = useState(false),
+    [message, setMessage] = useState("");
+  const [setup, setSetup] = useState(params.get("setup") ?? ""),
+    [search, setSearch] = useState(params.get("q") ?? ""),
+    [minimum, setMinimum] = useState(params.get("minScore") ?? "0"),
+    [liquidity, setLiquidity] = useState(params.get("minValue") ?? "0"),
+    [warningFree, setWarningFree] = useState(params.get("warningFree") === "1"),
+    [sort, setSort] = useState(params.get("sort") ?? "rank");
+  const load = useCallback(async () => {
+    const history = (await getWatchlistHistory())
+      .slice()
+      .sort((a, b) => b.localeCompare(a));
+    const day = requested || history[0] || "";
+    const [defs, latest, rows] = await Promise.all([
+      getScreenerDefinitions(),
+      getLatestScreeningExecution().catch(() => null),
+      day ? getWatchlistByDate(day) : Promise.resolve([]),
+    ]);
+    return { history, day, defs, latest, rows };
+  }, [requested]);
+  useEffect(() => {
+    let active = true;
+    setState("loading");
+    load()
+      .then((x) => {
+        if (active) {
+          setDates(x.history);
+          setSelected(x.day);
+          setDefinitions(x.defs);
+          setExecution(x.latest);
+          setItems(x.rows);
+          setState("ready");
+        }
+      })
+      .catch(() => {
+        if (active) setState("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [load, retry]);
+  useEffect(() => {
+    setSetup(params.get("setup") ?? "");
+    setSearch(params.get("q") ?? "");
+    setMinimum(params.get("minScore") ?? "0");
+    setLiquidity(params.get("minValue") ?? "0");
+    setWarningFree(params.get("warningFree") === "1");
+    setSort(params.get("sort") ?? "rank");
+  }, [params]);
+  async function run() {
+    if (running) return;
+    setRunning(true);
+    setMessage("");
+    try {
+      const completed = await runScreening();
+      router.push(
+        `/screener?date=${encodeURIComponent(completed.trading_date)}`,
+      );
+      setSelected(completed.trading_date);
+      setItems([]);
+      setRetry((x) => x + 1);
+    } catch (error) {
+      setMessage(
+        error instanceof WatchlistApiError && error.status === 409
+          ? "이미 스크리닝이 실행 중입니다."
+          : "스크리닝 실행에 실패했습니다.",
+      );
+    } finally {
+      setRunning(false);
+    }
+  }
+  function navigate(changes: Record<string, string>) {
+    const next = new URLSearchParams(params.toString());
+    Object.entries(changes).forEach(([key, value]) =>
+      value && value !== "0" && value !== "rank"
+        ? next.set(key, value)
+        : next.delete(key),
+    );
+    router.push(`/screener?${next.toString()}`);
+  }
+  function selectDate(day: string) {
+    setSelected(day);
+    navigate({ date: day });
+  }
+  const filtered = useMemo(() => {
+    const rows = items.filter(
+      (i) =>
+        (!setup || i.matched_setups?.includes(setup)) &&
+        i.symbol.includes(search.trim().toUpperCase()) &&
+        compareDecimal(i.total_score, minimum) >= 0 &&
+        compareDecimal(i.average_trading_value_20 ?? "0", liquidity) >= 0 &&
+        (!warningFree || i.warnings.length === 0),
+    );
+    return rows.sort((a, b) =>
+      sort === "score"
+        ? compareDecimal(b.total_score, a.total_score)
+        : sort === "liquidity"
+          ? compareDecimal(
+              b.average_trading_value_20 ?? "0",
+              a.average_trading_value_20 ?? "0",
+            )
+          : sort === "symbol"
+            ? a.symbol.localeCompare(b.symbol)
+            : a.rank - b.rank,
+    );
+  }, [items, setup, search, minimum, liquidity, warningFree, sort]);
+  return (
+    <main className="watchlist-shell">
+      <nav aria-label="주요 메뉴">
+        <Link href="/watchlist">관심 종목</Link>
+        <Link href="/backtests">백테스트</Link>
+        <Link href="/screener" aria-current="page">
+          스크리너
+        </Link>
+      </nav>
+      <header className="watchlist-header">
+        <p className="eyebrow">KOSPI MULTI-SETUP</p>
+        <h1>스윙 스크리너</h1>
+        <p>
+          기술적 조건에 따라 선별된 관찰 후보입니다. 자동 매수 신호가 아닙니다.
+        </p>
+        <p>
+          {definitions &&
+            `${definitions.screener_name} v${definitions.screener_version}`}{" "}
+          · 기준일 {selected || "—"}
+        </p>
+        {execution && (
+          <dl aria-label="가장 최근 실행">
+            <div>
+              <dt>가장 최근 실행</dt>
+              <dd>{execution.trading_date}</dd>
+            </div>
+            <div>
+              <dt>실행 상태</dt>
+              <dd>{execution.status}</dd>
+            </div>
+            <div>
+              <dt>시작/완료</dt>
+              <dd>
+                {execution.started_at} / {execution.finished_at ?? "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>후보/저장</dt>
+              <dd>
+                {execution.candidate_count ?? 0} /{" "}
+                {execution.persisted_count ?? 0}
+              </dd>
+            </div>
+          </dl>
+        )}
+        <button disabled={running} onClick={() => void run()}>
+          {running ? "실행 중…" : "오늘 스크리닝 실행"}
+        </button>
+        {message && <p role="alert">{message}</p>}
+      </header>
+      {state === "loading" && <p role="status">스크리닝 결과를 불러오는 중…</p>}
+      {state === "error" && (
+        <div role="alert">
+          결과를 불러오지 못했습니다.{" "}
+          <button onClick={() => setRetry((x) => x + 1)}>다시 시도</button>
+        </div>
+      )}
+      {state === "ready" && (
+        <>
+          <section className="panel" aria-label="스크리너 필터">
+            <label>
+              날짜
+              <select
+                value={selected}
+                onChange={(e) => selectDate(e.target.value)}
+              >
+                {dates.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              설정
+              <select
+                value={setup}
+                onChange={(e) => {
+                  setSetup(e.target.value);
+                  navigate({ setup: e.target.value });
+                }}
+              >
+                <option value="">전체</option>
+                {definitions?.setups.map((x) => (
+                  <option key={x.key} value={x.key}>
+                    {x.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              최소 점수
+              <input
+                value={minimum}
+                inputMode="decimal"
+                onChange={(e) => {
+                  const value = e.target.value || "0";
+                  setMinimum(value);
+                  navigate({ minScore: value });
+                }}
+              />
+            </label>
+            <label>
+              최소 거래대금
+              <input
+                value={liquidity}
+                inputMode="decimal"
+                onChange={(e) => {
+                  const value = e.target.value || "0";
+                  setLiquidity(value);
+                  navigate({ minValue: value });
+                }}
+              />
+            </label>
+            <label>
+              종목 검색
+              <input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  navigate({ q: e.target.value });
+                }}
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={warningFree}
+                onChange={(e) => {
+                  setWarningFree(e.target.checked);
+                  navigate({ warningFree: e.target.checked ? "1" : "" });
+                }}
+              />
+              경고 없음만
+            </label>
+            <label>
+              정렬
+              <select
+                value={sort}
+                onChange={(e) => {
+                  setSort(e.target.value);
+                  navigate({ sort: e.target.value });
+                }}
+              >
+                <option value="rank">순위</option>
+                <option value="score">점수</option>
+                <option value="liquidity">거래대금</option>
+                <option value="symbol">종목</option>
+              </select>
+            </label>
+          </section>
+          {filtered.length === 0 ? (
+            <p>이 날짜 또는 필터 조건에 맞는 저장 후보가 없습니다.</p>
+          ) : (
+            <section className="watchlist-list" aria-label="스크리닝 후보">
+              {filtered.map((i) => (
+                <article className="watchlist-card" key={i.symbol}>
+                  <Link
+                    className="card-link"
+                    href={`/watchlist/${encodeURIComponent(selected)}/${encodeURIComponent(i.symbol)}`}
+                  >
+                    <h2>
+                      {i.rank}. {i.symbol}
+                    </h2>
+                    <p>종합 점수 {formatDecimal(i.total_score)}</p>
+                    <p>
+                      <strong>
+                        {i.primary_setup
+                          ? LABELS[i.primary_setup]
+                          : "기존 후보"}
+                      </strong>{" "}
+                      {(i.matched_setups ?? [])
+                        .map((x) => LABELS[x])
+                        .join(" · ")}
+                    </p>
+                    <dl>
+                      <div>
+                        <dt>종가</dt>
+                        <dd>{won(i.latest_close)}</dd>
+                      </div>
+                      <div>
+                        <dt>20일 평균 거래대금</dt>
+                        <dd>{won(i.average_trading_value_20)}</dd>
+                      </div>
+                      {volumeMetrics(i).map((metric) => (
+                        <div key={metric.label}>
+                          <dt>{metric.label}</dt>
+                          <dd>{metric.value ?? "—"}</dd>
+                        </div>
+                      ))}
+                      <div>
+                        <dt>ATR 비율</dt>
+                        <dd>{formatRatioPercent(i.atr_pct)}</dd>
+                      </div>
+                    </dl>
+                    <p>
+                      {i.warnings.length
+                        ? `경고 ${i.warnings.length}건`
+                        : "경고 없음"}
+                    </p>
+                  </Link>
+                </article>
+              ))}
+            </section>
+          )}
+        </>
+      )}
+    </main>
+  );
 }

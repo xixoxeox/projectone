@@ -49,8 +49,8 @@ class SwingScreeningConfig(BaseModel):
     ideal_pullback_depth_pct: Decimal = D("0.06")
     maximum_pullback_depth_pct: Decimal = D("0.12")
     maximum_ema20_distance_pct: Decimal = D("0.04")
-    maximum_prior5_volume_ratio: Decimal = D("0.90")
-    best_prior5_volume_ratio: Decimal = D("0.50")
+    maximum_prior_short_volume_ratio: Decimal = D("0.90")
+    best_prior_short_volume_ratio: Decimal = D("0.50")
     maximum_scored_rebound_body_pct: Decimal = D("0.03")
     contraction_range_lookback: int = 10
     contraction_short_lookback: int = 5
@@ -58,8 +58,8 @@ class SwingScreeningConfig(BaseModel):
     maximum_contraction_range_pct: Decimal = D("0.08")
     maximum_true_range_contraction_ratio: Decimal = D("0.70")
     best_true_range_contraction_ratio: Decimal = D("0.40")
-    contraction_maximum_prior5_volume_ratio: Decimal = D("0.80")
-    contraction_best_prior5_volume_ratio: Decimal = D("0.50")
+    contraction_maximum_prior_short_volume_ratio: Decimal = D("0.80")
+    contraction_best_prior_short_volume_ratio: Decimal = D("0.50")
     maximum_scored_breakout_volume_ratio: Decimal = D("3.00")
 
     @model_validator(mode="after")
@@ -246,7 +246,7 @@ class TrendPullbackStrategy:
             ema20_distance_pct=abs(latest.close - ema) / ema if ema else ZERO,
             prior_short_average_volume=p5,
             previous_average_volume=av,
-            prior5_volume_ratio=p5 / av if av else ZERO,
+            prior_short_volume_ratio=p5 / av if av else ZERO,
             rebound_body_pct=(latest.close - latest.open) / latest.open if latest.open else ZERO,
         )
         rules = {
@@ -261,7 +261,8 @@ class TrendPullbackStrategy:
             "sma20_band": i.sma20 is not None and latest.close >= i.sma20 * D(".98"),
             "rebound": latest.close > bars[-2].close,
             "bullish_candle": latest.close >= latest.open,
-            "volume_contraction": m["prior5_volume_ratio"] <= self.c.maximum_prior5_volume_ratio,
+            "volume_contraction": m["prior_short_volume_ratio"]
+            <= self.c.maximum_prior_short_volume_ratio,
         }
         score = quantize_score(
             triangular_score(
@@ -274,9 +275,9 @@ class TrendPullbackStrategy:
             + low_is_good(m["ema20_distance_pct"], ZERO, self.c.maximum_ema20_distance_pct)
             * D(".30")
             + low_is_good(
-                m["prior5_volume_ratio"],
-                self.c.best_prior5_volume_ratio,
-                self.c.maximum_prior5_volume_ratio,
+                m["prior_short_volume_ratio"],
+                self.c.best_prior_short_volume_ratio,
+                self.c.maximum_prior_short_volume_ratio,
             )
             * D(".20")
             + high_is_good(m["rebound_body_pct"], ZERO, self.c.maximum_scored_rebound_body_pct)
@@ -320,7 +321,7 @@ class VolatilityContractionBreakoutStrategy:
             true_range_contraction_ratio=tr5 / tr20 if tr20 else ZERO,
             prior_short_average_volume=v5,
             prior_long_average_volume=v20,
-            prior5_volume_ratio=v5 / v20 if v20 else ZERO,
+            prior_short_volume_ratio=v5 / v20 if v20 else ZERO,
             breakout_volume_ratio=D(latest.volume) / v20 if v20 else ZERO,
         )
         rules = {
@@ -330,8 +331,8 @@ class VolatilityContractionBreakoutStrategy:
             "range_contraction": m["contraction_range_pct"] <= self.c.maximum_contraction_range_pct,
             "true_range_contraction": m["true_range_contraction_ratio"]
             <= self.c.maximum_true_range_contraction_ratio,
-            "volume_contraction": m["prior5_volume_ratio"]
-            <= self.c.contraction_maximum_prior5_volume_ratio,
+            "volume_contraction": m["prior_short_volume_ratio"]
+            <= self.c.contraction_maximum_prior_short_volume_ratio,
             "breakout": latest.close >= hi,
             "volume_expansion": m["breakout_volume_ratio"] >= self.c.minimum_breakout_volume_ratio,
             "bullish_candle": latest.close >= latest.open,
@@ -346,9 +347,9 @@ class VolatilityContractionBreakoutStrategy:
             )
             * D(".25")
             + low_is_good(
-                m["prior5_volume_ratio"],
-                self.c.contraction_best_prior5_volume_ratio,
-                self.c.contraction_maximum_prior5_volume_ratio,
+                m["prior_short_volume_ratio"],
+                self.c.contraction_best_prior_short_volume_ratio,
+                self.c.contraction_maximum_prior_short_volume_ratio,
             )
             * D(".20")
             + high_is_good(

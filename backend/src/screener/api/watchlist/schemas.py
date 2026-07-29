@@ -23,8 +23,8 @@ class WatchlistItemResponse(BaseModel):
     screener_version: str | None = None
     latest_close: Decimal | None = None
     average_trading_value_20: Decimal | None = None
-    latest_volume_ratio: Decimal | None = None
-    prior5_volume_ratio: Decimal | None = None
+    volume_ratio: Decimal | None = None
+    prior_short_volume_ratio: Decimal | None = None
     breakout_volume_ratio: Decimal | None = None
     atr_pct: Decimal | None = None
 
@@ -44,8 +44,8 @@ class WatchlistItemResponse(BaseModel):
             screener_version=snapshot.screener_version,
             latest_close=snapshot.metrics.get("close"),
             average_trading_value_20=snapshot.metrics.get("average_trading_value_20"),
-            latest_volume_ratio=primary_metrics.get("volume_ratio"),
-            prior5_volume_ratio=primary_metrics.get("prior5_volume_ratio"),
+            volume_ratio=primary_metrics.get("volume_ratio"),
+            prior_short_volume_ratio=primary_metrics.get("prior_short_volume_ratio"),
             breakout_volume_ratio=primary_metrics.get("breakout_volume_ratio"),
             atr_pct=snapshot.metrics.get("atr_pct"),
         )
