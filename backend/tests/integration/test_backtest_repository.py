@@ -444,7 +444,7 @@ async def test_no_close_lookahead_and_final_day_signal_is_traded(session: AsyncS
     days = [
         (date(2026, 1, 2), "10", "10"),
         (date(2026, 1, 5), "10", "10"),
-        (date(2026, 1, 6), "10", "1000"),
+        (date(2026, 1, 6), "10", "99"),
         (date(2026, 1, 7), "10", "10"),
     ]
     await seed_bars(session, ["AAA", "BBB"], days)
@@ -460,6 +460,11 @@ async def test_no_close_lookahead_and_final_day_signal_is_traded(session: AsyncS
     trades = await repository.list_trades(candidate.id, 100, 0)
     bbb = next(item for item in trades if item.symbol == "BBB")
     assert bbb.quantity == 250  # prior-close equity 10,000 × 25% / 10, not AAA's future close
+    original_aaa = next(
+        item for item in trades if item.symbol == "AAA" and item.entry_date == date(2026, 1, 5)
+    )
+    assert original_aaa.exit_date == date(2026, 1, 7)
+    assert original_aaa.exit_reason is BacktestExitReason.END_OF_PERIOD
     assert any(
         item.signal_date == date(2026, 1, 6)
         and item.exit_reason is BacktestExitReason.END_OF_PERIOD
