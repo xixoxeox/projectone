@@ -30,6 +30,10 @@ class BacktestAnalysisUnavailableError(RuntimeError):
     pass
 
 
+class PortfolioUnavailableError(RuntimeError):
+    pass
+
+
 class BacktestService:
     def __init__(
         self, repository: BacktestRepository, executor: BacktestExecutor, max_range_days: int
@@ -99,3 +103,24 @@ class BacktestService:
             )
         trades = await self.repository.list_all_trades_for_analysis(run_id)
         return analyze_backtest_trades(run_id, trades)
+
+    async def portfolio(self, run_id: UUID) -> tuple[BacktestRun, builtins.list[Any]]:
+        run = await self.get(run_id)
+        if run.status is not BacktestStatus.COMPLETED:
+            raise PortfolioUnavailableError("Portfolio data is available only for completed runs")
+        if run.execution_mode.value != "portfolio":
+            raise PortfolioUnavailableError("Portfolio data is unavailable for independent runs")
+        required = {
+            "initial_capital",
+            "final_equity",
+            "final_cash",
+            "net_profit",
+            "total_return",
+            "max_drawdown",
+            "max_drawdown_pct",
+            "maximum_open_positions_used",
+            "average_capital_utilization",
+        }
+        if run.result is None or not required <= run.result.keys():
+            raise PortfolioUnavailableError("Portfolio result is incomplete")
+        return run, await self.repository.list_portfolio_snapshots(run_id)

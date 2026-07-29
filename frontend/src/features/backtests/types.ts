@@ -1,5 +1,6 @@
 export type DecimalString = string;
 export type BacktestStatus = "pending" | "running" | "completed" | "failed";
+export type ExecutionMode = "independent" | "portfolio";
 
 export interface BacktestResult {
   initial_capital?: DecimalString;
@@ -19,6 +20,11 @@ export interface BacktestResult {
   max_drawdown?: DecimalString;
   max_consecutive_wins?: number;
   max_consecutive_losses?: number;
+  final_equity?: DecimalString;
+  final_cash?: DecimalString;
+  max_drawdown_pct?: DecimalString;
+  maximum_open_positions_used?: number;
+  average_capital_utilization?: DecimalString;
 }
 
 export interface BacktestRun {
@@ -36,6 +42,7 @@ export interface BacktestRun {
   result: BacktestResult | null;
   failure_code: string | null;
   failure_message: string | null;
+  execution_mode?: ExecutionMode;
 }
 
 export interface BacktestTrade {
@@ -59,6 +66,7 @@ export interface BacktestTrade {
 }
 
 export interface BacktestFormValues {
+  execution_mode: ExecutionMode;
   start_date: string;
   end_date: string;
   position_size: string;
@@ -68,7 +76,14 @@ export interface BacktestFormValues {
   commission_rate: string;
   sell_tax_rate: string;
   slippage_rate: string;
+  initial_capital: string;
+  max_open_positions: string;
+  position_size_pct: string;
+  minimum_cash_buffer_pct: string;
 }
+
+export interface PortfolioSnapshot { trading_date:string;cash:DecimalString;market_value:DecimalString;realized_pnl:DecimalString;unrealized_pnl:DecimalString;total_equity:DecimalString;cumulative_return:DecimalString;running_peak_equity:DecimalString;drawdown:DecimalString;drawdown_pct:DecimalString;open_position_count:number }
+export interface PortfolioResult { run_id:string;execution_mode:"portfolio";initial_capital:DecimalString;final_equity:DecimalString;final_cash:DecimalString;net_profit:DecimalString;total_return:DecimalString;max_drawdown:DecimalString;max_drawdown_pct:DecimalString;maximum_open_positions_used:number;average_capital_utilization:DecimalString;snapshots:PortfolioSnapshot[] }
 
 export interface AnalysisStats {
   trade_count?: number;

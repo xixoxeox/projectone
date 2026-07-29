@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from screener.modules.market.domain import DailyBar
 from screener.modules.market.indicators.service import IndicatorService
-from screener.modules.market.infrastructure.models import DailyBarRecord, WatchlistPipelineExecution
+from screener.modules.market.infrastructure.models import (
+    DailyBarRecord,
+    Stock,
+    WatchlistPipelineExecution,
+)
 from screener.modules.market.pipeline.models import (
     ExecutionAcquireStatus,
     ExecutionStatus,
@@ -20,7 +24,7 @@ from screener.modules.market.pipeline.models import (
     TriggerType,
 )
 from screener.modules.market.pipeline.repository import PipelineExecutionRepository
-from screener.modules.market.ranking.ranker import CandidateRanker
+from screener.modules.market.ranking.ranker import CandidateRanker, SwingCandidateRanker
 from screener.modules.market.scanning.models import ScanInput
 from screener.modules.market.scanning.scanner import CandidateScanner
 from screener.modules.market.sync import SyncCoordinator
@@ -38,7 +42,7 @@ class DailyWatchlistPipeline:
         sync: SyncCoordinator,
         indicators: IndicatorService,
         scanner: CandidateScanner,
-        ranker: CandidateRanker,
+        ranker: CandidateRanker | SwingCandidateRanker,
         timezone: str = "Asia/Seoul",
         stale_after_seconds: int = 7200,
     ) -> None:
@@ -93,9 +97,7 @@ class DailyWatchlistPipeline:
             candidates = self.scanner.scan(inputs)
             stage = PipelineStage.CANDIDATE_RANKING
             await self._stage(run.id, stage)
-            ranked = self.ranker.rank(candidates)
-            if not ranked:
-                return await self._finish_skipped(run.id, target, started, "no_candidates", 0)
+            ranked = self.ranker.rank(candidates)[:30]
             stage = PipelineStage.WATCHLIST_PERSISTENCE
             await self._stage(run.id, stage)
             async with self.sessions() as session:
@@ -144,10 +146,18 @@ class DailyWatchlistPipeline:
 
     async def _inputs(self, target: date) -> list[ScanInput]:
         async with self.sessions() as session:
+            eligible = select(Stock.symbol).where(
+                Stock.is_active.is_(True),
+                Stock.market == "KOSPI",
+                Stock.listing_status == "listed",
+                Stock.security_type == "common_stock",
+            )
             records = (
                 await session.scalars(
                     select(DailyBarRecord)
-                    .where(DailyBarRecord.trading_date <= target)
+                    .where(
+                        DailyBarRecord.trading_date <= target, DailyBarRecord.symbol.in_(eligible)
+                    )
                     .order_by(DailyBarRecord.symbol, DailyBarRecord.trading_date)
                 )
             ).all()

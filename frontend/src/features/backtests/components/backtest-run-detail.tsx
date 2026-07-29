@@ -6,6 +6,7 @@ export function BacktestRunDetail({ run }: { run: BacktestRun }) {
   const metadata = [
     ["ID", run.id],
     ["전략", `${run.strategy_name} v${run.strategy_version ?? "—"}`],
+    ["실행 모드", run.execution_mode === "portfolio" ? "포트폴리오" : "독립 거래"],
     ["기간", `${run.start_date} – ${run.end_date}`],
     ["데이터 기준", dateTime(run.data_as_of)],
     ["생성", dateTime(run.created_at)],

@@ -1,4 +1,4 @@
-import type { WatchlistDetail, WatchlistItem } from "./types";
+import type { ScreenerDefinitions, WatchlistDetail, WatchlistItem } from "./types";
 
 const API_BASE_PATH = process.env.NEXT_PUBLIC_API_BASE_PATH ?? "/api/v1";
 
@@ -25,3 +25,4 @@ export const getWatchlistHistory = () => get<string[]>("/watchlist/history");
 export const getWatchlistByDate = (date: string) => get<WatchlistItem[]>(`/watchlist/${encodeURIComponent(date)}`);
 export const getWatchlistDetail = (date: string, symbol: string) =>
   get<WatchlistDetail>(`/watchlist/${encodeURIComponent(date)}/${encodeURIComponent(symbol)}`);
+export const getScreenerDefinitions = () => get<ScreenerDefinitions>("/screener/definitions");

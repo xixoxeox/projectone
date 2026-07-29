@@ -1,4 +1,4 @@
-import type { BacktestAnalysis, BacktestFormValues, BacktestRun, BacktestTrade } from "./types";
+import type { BacktestAnalysis, BacktestFormValues, BacktestRun, BacktestTrade, PortfolioResult } from "./types";
 
 const API_BASE_PATH = process.env.NEXT_PUBLIC_API_BASE_PATH ?? "/api/v1";
 const MAX_TRADE_LIMIT = 500;
@@ -55,6 +55,7 @@ export const getBacktest = (id: string): Promise<BacktestRun> =>
   request(`/backtests/${encodeURIComponent(id)}`);
 export const getBacktestAnalysis = (id: string): Promise<BacktestAnalysis> =>
   request(`/backtests/${encodeURIComponent(id)}/analysis`);
+export const getBacktestPortfolio = (id: string): Promise<PortfolioResult> => request(`/backtests/${encodeURIComponent(id)}/portfolio`);
 
 export function createBacktest(
   values: BacktestFormValues,
@@ -64,10 +65,11 @@ export function createBacktest(
     body: JSON.stringify({
       strategy_name: "watchlist_entry",
       strategy_version: "1",
+      ...(values.execution_mode === "portfolio" ? { execution_mode: "portfolio" } : {}),
       start_date: values.start_date,
       end_date: values.end_date,
       parameters: {
-        position_size: values.position_size,
+        ...(values.execution_mode === "independent" ? {position_size: values.position_size} : {initial_capital:values.initial_capital,max_open_positions:Number(values.max_open_positions),position_sizing_mode:"fixed_fraction",position_size_pct:values.position_size_pct,minimum_cash_buffer_pct:values.minimum_cash_buffer_pct}),
         stop_loss_pct: values.stop_loss_pct,
         take_profit_pct: values.take_profit_pct,
         max_holding_days: Number(values.max_holding_days),

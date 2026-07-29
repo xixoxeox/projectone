@@ -13,6 +13,11 @@ class BacktestStatus(StrEnum):
     FAILED = "failed"
 
 
+class BacktestExecutionMode(StrEnum):
+    INDEPENDENT = "independent"
+    PORTFOLIO = "portfolio"
+
+
 class BacktestExitReason(StrEnum):
     STOP_LOSS = "stop_loss"
     TAKE_PROFIT = "take_profit"
@@ -43,6 +48,24 @@ class BacktestTrade:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
+@dataclass(frozen=True, slots=True)
+class PortfolioSnapshot:
+    id: UUID
+    run_id: UUID
+    trading_date: date
+    cash: Decimal
+    market_value: Decimal
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal
+    total_equity: Decimal
+    cumulative_return: Decimal
+    running_peak_equity: Decimal
+    drawdown: Decimal
+    drawdown_pct: Decimal
+    open_position_count: int
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
 class InvalidBacktestTransition(ValueError):
     """Raised when a backtest lifecycle transition is not allowed."""
 
@@ -63,6 +86,11 @@ class BacktestRun:
     result: dict[str, Any] | None = None
     failure_code: str | None = None
     failure_message: str | None = None
+
+    @property
+    def execution_mode(self) -> BacktestExecutionMode:
+        """Legacy rows have no mode and therefore retain independent semantics."""
+        return BacktestExecutionMode(self.parameters.get("execution_mode", "independent"))
 
     @classmethod
     def create(

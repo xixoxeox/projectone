@@ -174,3 +174,69 @@ class CandidateRanker:
 
 
 __all__ = ["CandidateRanker"]
+
+
+class SwingCandidateRanker:
+    """Deterministic v2 ranking for aggregated multi-setup candidates."""
+
+    _priority = {"volatility_contraction_breakout": 0, "box_breakout": 1, "trend_pullback": 2}
+
+    def __init__(self, minimum_liquidity: Decimal = Decimal("1000000000")) -> None:
+        self.minimum_liquidity = minimum_liquidity
+
+    def rank(self, results: Sequence[ScreeningResult]) -> list[RankedCandidate]:
+        CandidateRanker._validate_request(results)
+        candidates = [self._score(result) for result in results]
+        candidates.sort(
+            key=lambda c: (
+                -c.total_score,
+                -c.source_result.setup_scores.get(c.source_result.primary_setup or "", ZERO),
+                self._priority.get(c.source_result.primary_setup or "", 99),
+                c.symbol,
+            )
+        )
+        return [
+            candidate.model_copy(update={"rank": rank})
+            for rank, candidate in enumerate(candidates, 1)
+        ]
+
+    def _score(self, result: ScreeningResult) -> RankedCandidate:
+        metrics = result.metrics
+        sma20 = metrics.get("sma20", ZERO)
+        sma60 = metrics.get("sma60", ZERO)
+        trend = self._linear((sma20 - sma60) / sma60 if sma60 > 0 else ZERO, ZERO, Decimal(".20"))
+        setup = max(result.setup_scores.values(), default=ZERO)
+        liquidity = self._linear(
+            metrics.get("average_trading_value_20", ZERO) / self.minimum_liquidity,
+            Decimal("1"),
+            Decimal("5"),
+        )
+        atr = metrics.get("atr_pct", ZERO)
+        volatility = CandidateRanker()._score_volatility({"atr14": atr, "close": Decimal("1")}, [])
+        components = {
+            "trend": trend,
+            "setup": setup,
+            "liquidity": liquidity,
+            "volatility": volatility,
+        }
+        total = CandidateRanker._normalize_score(
+            trend * Decimal(".25")
+            + setup * Decimal(".45")
+            + liquidity * Decimal(".15")
+            + volatility * Decimal(".15")
+        )
+        return RankedCandidate(
+            symbol=result.symbol,
+            rank=1,
+            total_score=total,
+            component_scores=components,
+            source_result=result,
+            warnings=result.warnings,
+        )
+
+    @staticmethod
+    def _linear(value: Decimal, minimum: Decimal, maximum: Decimal) -> Decimal:
+        return CandidateRanker()._linear_score(value, minimum, maximum)
+
+
+__all__ = ["CandidateRanker", "SwingCandidateRanker"]

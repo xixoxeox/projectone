@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -11,7 +12,12 @@ from fastapi.testclient import TestClient
 
 from screener.api.backtests.dependencies import get_backtest_service
 from screener.main import app
-from screener.modules.backtest import BacktestExitReason, BacktestRun, BacktestTrade
+from screener.modules.backtest import (
+    BacktestExitReason,
+    BacktestRun,
+    BacktestTrade,
+    PortfolioSnapshot,
+)
 from screener.modules.backtest.analysis import analyze_backtest_trades
 from screener.modules.backtest.service import (
     BacktestAnalysisUnavailableError,
@@ -79,6 +85,34 @@ class FakeService:
                 "Backtest analysis is available only for completed runs"
             )
         return analyze_backtest_trades(run_id, self.trades.get(run_id, []))
+
+    async def portfolio(self, run_id: UUID):
+        from screener.modules.backtest.service import PortfolioUnavailableError
+
+        run = await self.get(run_id)
+        if run.status.value != "completed" or run.execution_mode.value != "portfolio":
+            raise PortfolioUnavailableError("Portfolio data is unavailable for this run")
+        snapshot = PortfolioSnapshot(
+            uuid4(),
+            run.id,
+            date(2026, 1, 2),
+            *(
+                Decimal(value)
+                for value in [
+                    "900.00000000",
+                    "100.00000000",
+                    "0.00000000",
+                    "0.00000000",
+                    "1000.00000000",
+                    "0.00000000",
+                    "1000.00000000",
+                    "0.00000000",
+                    "0.00000000",
+                ]
+            ),
+            1,
+        )
+        return run, [snapshot]
 
 
 @pytest.fixture
@@ -201,6 +235,41 @@ def test_openapi_contains_all_backtest_routes(client: TestClient) -> None:
     assert "get" in paths["/api/v1/backtests/{run_id}"]
     assert "get" in paths["/api/v1/backtests/{run_id}/trades"]
     assert "get" in paths["/api/v1/backtests/{run_id}/analysis"]
+    assert "get" in paths["/api/v1/backtests/{run_id}/portfolio"]
+
+
+def test_portfolio_create_and_exact_response(client: TestClient, service: FakeService) -> None:
+    request = payload() | {
+        "execution_mode": "portfolio",
+        "parameters": {
+            "initial_capital": "1000",
+            "max_open_positions": 2,
+            "position_sizing_mode": "fixed_fraction",
+            "position_size_pct": "0.5",
+            "minimum_cash_buffer_pct": "0.1",
+        },
+    }
+    created = client.post("/api/v1/backtests", json=request)
+    assert created.status_code == 201 and created.json()["execution_mode"] == "portfolio"
+    run_id = UUID(created.json()["id"])
+    run = service.runs[run_id]
+    service.runs[run_id] = replace(
+        run,
+        result={
+            "initial_capital": "1000.00000000",
+            "final_equity": "1000.00000000",
+            "final_cash": "1000.00000000",
+            "net_profit": "0.00000000",
+            "total_return": "0.00000000",
+            "max_drawdown": "0.00000000",
+            "max_drawdown_pct": "0.00000000",
+            "maximum_open_positions_used": 1,
+            "average_capital_utilization": "0.10000000",
+        },
+    )
+    response = client.get(f"/api/v1/backtests/{run_id}/portfolio")
+    assert response.status_code == 200
+    assert response.json()["snapshots"][0]["cash"] == "900.00000000"
 
 
 def test_completed_analysis_serializes_exact_decimal_strings(

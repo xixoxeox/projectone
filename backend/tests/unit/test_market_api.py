@@ -57,3 +57,30 @@ def test_bars_response_contains_metadata() -> None:
         assert isinstance(response.json()["stale"], bool)
     finally:
         app.dependency_overrides.clear()
+
+
+def test_screener_definitions_are_authenticated_and_decimal_exact() -> None:
+    with TestClient(app) as client:
+        assert client.get("/api/v1/screener/definitions").status_code == 401
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role="admin")
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v1/screener/definitions")
+            paths = client.get("/openapi.json").json()["paths"]
+        assert response.status_code == 200
+        body = response.json()
+        assert body["screener_name"] == "multi_setup_swing"
+        assert [item["key"] for item in body["setups"]] == [
+            "box_breakout",
+            "trend_pullback",
+            "volatility_contraction_breakout",
+        ]
+        assert [item["label"] for item in body["setups"]] == [
+            "박스권 돌파",
+            "추세 눌림목",
+            "변동성 축소 돌파",
+        ]
+        assert body["defaults"]["minimum_close"] == "1000"
+        assert "/api/v1/screener/definitions" in paths
+    finally:
+        app.dependency_overrides.clear()
