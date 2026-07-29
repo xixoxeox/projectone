@@ -386,14 +386,16 @@ async def seed_bars(
             )
         )
         for day, opening, close in rows:
+            opening_value = Decimal(opening)
+            close_value = Decimal(close)
             session.add(
                 DailyBarRecord(
                     symbol=symbol,
                     trading_date=day,
-                    open=Decimal(opening),
-                    high=Decimal(opening),
-                    low=Decimal(opening),
-                    close=Decimal(close),
+                    open=opening_value,
+                    high=max(opening_value, close_value),
+                    low=min(opening_value, close_value),
+                    close=close_value,
                     volume=100,
                     source="test_fixture",
                 )
