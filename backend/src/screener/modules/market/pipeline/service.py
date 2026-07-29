@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from screener.modules.market.domain import DailyBar
 from screener.modules.market.indicators.service import IndicatorService
-from screener.modules.market.infrastructure.models import DailyBarRecord, WatchlistPipelineExecution
+from screener.modules.market.infrastructure.models import (
+    DailyBarRecord,
+    Stock,
+    WatchlistPipelineExecution,
+)
 from screener.modules.market.pipeline.models import (
     ExecutionAcquireStatus,
     ExecutionStatus,
@@ -87,8 +91,6 @@ class DailyWatchlistPipeline:
             stage = PipelineStage.INDICATOR_CALCULATION
             await self._stage(run.id, stage)
             inputs = await self._inputs(target)
-            if not inputs:
-                return await self._finish_skipped(run.id, target, started, "no_market_data")
             stage = PipelineStage.SCREENING
             await self._stage(run.id, stage)
             stage = PipelineStage.CANDIDATE_SCANNING
@@ -168,7 +170,14 @@ class DailyWatchlistPipeline:
                     )
                     .label("recent_rank"),
                 )
+                .join(Stock, Stock.symbol == DailyBarRecord.symbol)
                 .where(DailyBarRecord.trading_date <= target)
+                .where(
+                    Stock.is_active.is_(True),
+                    Stock.market == "KOSPI",
+                    Stock.listing_status == "listed",
+                    Stock.security_type == "common_stock",
+                )
                 .subquery()
             )
             records = (

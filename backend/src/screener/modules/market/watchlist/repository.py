@@ -9,6 +9,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from screener.modules.market.infrastructure.models import WatchlistPipelineExecution
 from screener.modules.market.ranking.models import RankedCandidate
 from screener.modules.market.screening.models import ScreeningResult
 from screener.modules.market.watchlist.models import WatchlistEntry, WatchlistEntryRecord
@@ -53,22 +54,37 @@ class WatchlistRepository:
         return [self._entry(record) for record in records]
 
     async def latest(self) -> builtins.list[WatchlistEntry]:
-        """Return the newest stored trading date, or an empty list."""
+        """Return the authoritative newest successful result, including empty results."""
         latest_date = await self._session.scalar(
-            select(func.max(WatchlistEntryRecord.trading_date))
+            select(func.max(WatchlistPipelineExecution.trading_date)).where(
+                WatchlistPipelineExecution.status == "succeeded"
+            )
         )
+        if latest_date is None and not await self._has_any_execution():
+            latest_date = await self._session.scalar(
+                select(func.max(WatchlistEntryRecord.trading_date))
+            )
         if latest_date is None:
             return []
         return await self.list(latest_date)
 
     async def history(self) -> builtins.list[date]:
-        """Return stored trading dates ordered from newest to oldest."""
+        """Return successful execution dates, including empty results."""
         dates = await self._session.scalars(
-            select(WatchlistEntryRecord.trading_date)
+            select(WatchlistPipelineExecution.trading_date)
+            .where(WatchlistPipelineExecution.status == "succeeded")
             .distinct()
-            .order_by(WatchlistEntryRecord.trading_date.desc())
+            .order_by(WatchlistPipelineExecution.trading_date.desc())
         )
-        return list(dates)
+        values = list(dates)
+        if not values and not await self._has_any_execution():
+            legacy = await self._session.scalars(
+                select(WatchlistEntryRecord.trading_date)
+                .distinct()
+                .order_by(WatchlistEntryRecord.trading_date.desc())
+            )
+            return list(legacy)
+        return values
 
     async def get(self, trading_date: date, symbol: str) -> WatchlistEntry | None:
         """Return one entry for a date and symbol, if it exists."""
@@ -81,13 +97,30 @@ class WatchlistRepository:
         return None if record is None else self._entry(record)
 
     async def exists(self, trading_date: date) -> bool:
-        """Return whether at least one entry exists for ``trading_date``."""
-        entry_id = await self._session.scalar(
+        """Return whether a successful result (possibly empty) exists for the date."""
+        execution_id = await self._session.scalar(
+            select(WatchlistPipelineExecution.id)
+            .where(
+                WatchlistPipelineExecution.trading_date == trading_date,
+                WatchlistPipelineExecution.status == "succeeded",
+            )
+            .limit(1)
+        )
+        if execution_id is not None:
+            return True
+        if await self._has_any_execution():
+            return False
+        legacy_id = await self._session.scalar(
             select(WatchlistEntryRecord.id)
             .where(WatchlistEntryRecord.trading_date == trading_date)
             .limit(1)
         )
-        return entry_id is not None
+        return legacy_id is not None
+
+    async def _has_any_execution(self) -> bool:
+        return (
+            await self._session.scalar(select(WatchlistPipelineExecution.id).limit(1)) is not None
+        )
 
     async def delete(self, trading_date: date) -> None:
         """Delete only entries belonging to ``trading_date``."""

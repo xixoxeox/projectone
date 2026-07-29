@@ -139,7 +139,8 @@ class MultiSetupSwingStrategy:
             for key, value in rs.items()
         }
         matched = [name for name in SETUP_ORDER if evaluations[name][0] and common[0]]
-        scores = {name: evaluations[name][1].pop("setup_score") for name in SETUP_ORDER}
+        evaluated_scores = {name: evaluations[name][1].pop("setup_score") for name in SETUP_ORDER}
+        scores = {name: evaluated_scores[name] for name in matched}
         primary = (
             min(matched, key=lambda name: (-scores[name], SETUP_ORDER.index(name)))
             if matched
@@ -227,7 +228,7 @@ class MultiSetupSwingStrategy:
             "bullish": latest.close >= latest.open,
         }
         score = quantize_score(
-            low_is_good(width, ZERO, c.maximum_box_width_pct) * Decimal(".35")
+            low_is_good(width, Decimal(".05"), c.maximum_box_width_pct) * Decimal(".35")
             + high_is_good(breakout, ZERO, c.maximum_scored_breakout_pct) * Decimal(".30")
             + high_is_good(vr, c.minimum_breakout_volume_ratio, c.maximum_scored_volume_ratio)
             * Decimal(".35")
@@ -342,7 +343,7 @@ class MultiSetupSwingStrategy:
             "bullish": latest.close >= latest.open,
         }
         score = quantize_score(
-            low_is_good(rp, ZERO, c.maximum_contraction_range_pct) * Decimal(".30")
+            low_is_good(rp, Decimal(".03"), c.maximum_contraction_range_pct) * Decimal(".30")
             + low_is_good(
                 trr, c.best_true_range_contraction_ratio, c.maximum_true_range_contraction_ratio
             )

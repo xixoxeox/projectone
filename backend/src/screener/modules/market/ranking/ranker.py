@@ -208,7 +208,10 @@ class SwingCandidateRanker(CandidateRanker):
         trend = self._linear_score(
             (sma20 - sma60) / sma60 if sma60 > ZERO else ZERO, ZERO, Decimal(".20")
         )
-        setup = max(result.setup_scores.values(), default=ZERO)
+        setup = max(
+            (result.setup_scores[name] for name in result.matched_setups),
+            default=ZERO,
+        )
         value = metrics.get("average_trading_value_20", ZERO)
         threshold = self.config.minimum_average_trading_value_20
         liquidity = self._linear_score(

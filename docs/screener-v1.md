@@ -1,21 +1,37 @@
 # Multi-setup swing screener v1
 
-Sprint 19 keeps the existing sync → indicators → screening → scanning → ranking → watchlist pipeline. It evaluates canonical active, listed KOSPI common stocks using only persisted daily bars.
+## Architecture and universe
 
-## Configuration and filters
+Sprint 19 retains the single sync → indicator calculation → screening → scanning → ranking → watchlist persistence pipeline. A single bounded SQL window query selects persisted bars only for active `KOSPI`, `listed`, `common_stock` stock-master rows. It partitions by symbol, orders trading dates descending, limits each symbol to `minimum_history_bars`, excludes future bars, then restores deterministic symbol/date order. A target-date bar is mandatory.
 
-`SwingScreeningConfig` is immutable and is the single source for history, liquidity, volatility, lookback, scoring, and candidate-limit defaults. Common filters require a target bar, 61 bars, a positive-volume close of at least KRW 1,000, SMA20/SMA60/ATR14, twenty-bar average trading value of KRW 1 billion, and ATR/close no greater than 0.12.
+Common filtering requires 61 bars; close ≥ KRW 1,000; positive latest volume; SMA20, SMA60, and ATR14; 20-bar average `close × volume` ≥ KRW 1 billion; and ATR14/latest close ≤ 0.12. No market-capitalization, sector, industry, or theme values are invented.
 
-## Setups and scoring
+## Configuration
 
-Box breakout compares the target close and volume with a target-excluded price box and volume mean. Trend pullback measures peak-to-close depth, EMA20 proximity, prior short-volume contraction, and rebound body. Volatility-contraction breakout uses a target-excluded range, gap-aware true ranges, long/short volume baselines, and breakout volume. Scores are bounded 0–100 Decimals, rounded half-up to 0.01; component weights are 35/30/35, 35/30/20/15, and 30/25/20/25 respectively.
+`SwingScreeningConfig` is immutable and is shared by strategies, common filtering, ranking liquidity, candidate limiting, and definitions. It validates positive lookbacks, short/long relationships, and enough history for every accepted window. Decimal defaults are serialized as exact strings.
 
-Ranking weights trend/setup/liquidity/volatility by 25/45/15/15. Ties use total score, primary score, `volatility_contraction_breakout`, `box_breakout`, `trend_pullback`, then symbol. Ranks are consecutive.
+## Setups, windows, and formulas
 
-## Data and API
+Every “previous” window excludes the target bar.
 
-Persisted loading is bounded to the newest configured N rows per symbol through the target date; calendar intervals and future bars are not used. A successful execution with zero persisted candidates is an authoritative empty result. `/api/v1/screener/definitions` describes exact string Decimal defaults. Watchlist snapshots remain compatible when older records omit v1 fields. The `/screener` UI stores date, setup, query, thresholds, warning flag, and sort state in URL parameters without floating-point financial comparisons.
+* **Box breakout:** prior 20-bar high/low and mean volume. `box_width_pct=(high-low)/high`, `breakout_pct=(close-high)/high`, and `volume_ratio=latest_volume/prior_mean_volume`. Tightness is 100 through 0.05, linearly declines, and is 0 at 0.15. Score weights are tightness 35%, breakout distance 30%, volume expansion 35%.
+* **Trend pullback:** prior 20-bar peak close and mean volume plus an independently configured prior 5-bar short-volume mean. `depth=(peak-close)/peak`, `EMA distance=abs(close-EMA20)/EMA20`, and short-volume ratio is short mean/long mean. The latest volume is excluded. Score weights are depth quality 35%, EMA proximity 30%, volume contraction 20%, rebound body 15%.
+* **Volatility-contraction breakout:** prior 10-bar range, prior 20-bar volumes, and 20 gap-aware true ranges where `TR=max(high-low,abs(high-previous_close),abs(low-previous_close))`. Short averages use the final five target-excluded values. Range tightness is 100 through 0.03, linearly declines, and is 0 at 0.08. Score weights are range 30%, TR contraction 25%, volume contraction 20%, breakout volume 25%.
 
-## Limitations
+Scores use finite `Decimal` values, explicit zero-denominator policies, 0–100 clamping, and `ROUND_HALF_UP` quantization to 0.01. All setup metrics and rule outcomes remain auditable, but `setup_scores` and ranking include passing setups only.
 
-Daily bars only; no intraday confirmation, order-book data, market capitalization, sector/theme classification, fundamentals, benchmark-relative strength, automatic trading, or assurance of future returns. Technical conditions do not guarantee future returns.
+## Ranking and persistence
+
+Ranking weights trend/setup/liquidity/volatility 25/45/15/15. Setup is the maximum passing matched score. Ties use total score, primary matched score, canonical priority (`volatility_contraction_breakout`, `box_breakout`, `trend_pullback`), then symbol. Symbols are unique and ranks consecutive.
+
+The latest successful row in `watchlist_pipeline_executions` is authoritative. A succeeded execution with `persisted_count=0` is a real empty result: it appears in history, date and latest reads return `[]`, and candidates from older dates cannot leak. Failed executions are excluded; dates without a success return 404; missing symbol detail returns 404. Replacement is transactional.
+
+## API and frontend
+
+Authenticated `GET /api/v1/screener/definitions` returns name, version, setup keys, Korean labels, descriptions, exact defaults, and limitations. Compact watchlist data exposes common metrics plus only the primary setup's appropriate volume metrics. Detail adds setup scores, setup metrics, grouped rule evaluations, and configuration snapshot. Historical snapshots with absent v1 fields retain defaults.
+
+`/screener` loads definitions, successful history, the selected date, latest execution metadata, and uses the existing administrative run endpoint. URL keys are `date`, `setup`, `q`, `minScore`, `minValue`, `warningFree`, and `sort`; changes preserve unrelated keys. Empty values are removed, numeric-filter zero is the default, `warningFree` persists only as `1`, and rank is the default sort. Searches such as `q=0`, `q=005930`, and `q=rank` remain strings. Financial comparisons and percentage rendering operate on exact decimal strings rather than JavaScript numbers.
+
+## Compatibility and limitations
+
+The legacy `BreakoutStrategy`, existing table, pipeline, scheduler, notifications, and historical snapshots remain compatible. There is no migration and no automatic trading. Limitations: daily bars only; no intraday confirmation; order-book data; market capitalization; sector/theme classification; fundamentals; benchmark-relative strength; or return guarantee. Technical conditions do not guarantee future returns.
