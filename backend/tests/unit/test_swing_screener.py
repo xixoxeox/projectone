@@ -136,3 +136,40 @@ def test_multi_setup_preserves_unique_failed_rule_audit_keys() -> None:
     assert "trend_pullback:trend" in result.rule_evaluations
     assert "volatility_contraction_breakout:trend" in result.rule_evaluations
     assert all(not reason.startswith("failed:") for reason in result.reasons)
+
+
+def test_custom_lookbacks_drive_actual_windows_and_validate_relationships() -> None:
+    from pydantic import ValidationError
+
+    from screener.modules.market.screening.swing import (
+        SwingScreeningConfig,
+        TrendPullbackStrategy,
+        VolatilityContractionBreakoutStrategy,
+    )
+
+    custom = SwingScreeningConfig(
+        minimum_history_bars=12,
+        box_lookback=3,
+        pullback_lookback=4,
+        contraction_range_lookback=3,
+        contraction_short_lookback=2,
+        contraction_long_lookback=6,
+    )
+    source = bars(12)
+    box = BoxBreakoutStrategy(custom).evaluate(source, indicators())
+    assert box.metrics["previous_high20"] == max(item.high for item in source[-4:-1])
+    pullback = TrendPullbackStrategy(custom).evaluate(source, indicators())
+    assert pullback.metrics["previous_peak_close20"] == max(item.close for item in source[-5:-1])
+    contraction = VolatilityContractionBreakoutStrategy(custom).evaluate(source, indicators())
+    assert contraction.metrics["previous_high10"] == max(item.high for item in source[-4:-1])
+    expected_long = [
+        true_range(source[n], source[n - 1].close) for n in range(len(source) - 7, len(source) - 1)
+    ]
+    assert contraction.metrics["prior20_average_true_range"] == sum(expected_long, D("0")) / D("6")
+    assert contraction.metrics["prior5_average_true_range"] == sum(expected_long[-2:], D("0")) / D(
+        "2"
+    )
+    with pytest.raises(ValidationError):
+        SwingScreeningConfig(contraction_short_lookback=6, contraction_long_lookback=5)
+    with pytest.raises(ValidationError):
+        SwingScreeningConfig(minimum_history_bars=10, contraction_long_lookback=20)

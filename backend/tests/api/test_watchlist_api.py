@@ -33,8 +33,13 @@ def entry(symbol: str = "005930", trading_date: date = date(2026, 7, 28)) -> Wat
 
 
 class FakeRepository:
-    def __init__(self, entries: list[WatchlistEntry] | None = None) -> None:
+    def __init__(
+        self,
+        entries: list[WatchlistEntry] | None = None,
+        successful_dates: set[date] | None = None,
+    ) -> None:
         self.entries = entries or []
+        self.successful_dates = successful_dates or set()
 
     async def latest(self) -> list[WatchlistEntry]:
         return self.entries
@@ -56,7 +61,7 @@ class FakeRepository:
         )
 
     async def has_successful_execution(self, trading_date: date) -> bool:
-        return False
+        return trading_date in self.successful_dates
 
 
 @pytest.fixture
@@ -104,6 +109,14 @@ def test_missing_date(client: TestClient) -> None:
     use_repository(FakeRepository())
     response = client.get("/api/v1/watchlist/2026-07-28")
     assert response.status_code == 404
+
+
+def test_successful_empty_date_returns_200(client: TestClient) -> None:
+    day = date(2026, 7, 28)
+    use_repository(FakeRepository(successful_dates={day}))
+    response = client.get(f"/api/v1/watchlist/{day}")
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 def test_get_symbol_returns_inspection_fields(client: TestClient) -> None:

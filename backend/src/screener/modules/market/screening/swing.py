@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from screener.modules.market.domain import DailyBar
 from screener.modules.market.indicators.models import IndicatorSnapshot
@@ -60,6 +60,29 @@ class SwingScreeningConfig(BaseModel):
     contraction_maximum_prior5_volume_ratio: Decimal = D("0.80")
     contraction_best_prior5_volume_ratio: Decimal = D("0.50")
     maximum_scored_breakout_volume_ratio: Decimal = D("3.00")
+
+    @model_validator(mode="after")
+    def valid_lookbacks(self) -> "SwingScreeningConfig":
+        lookbacks = (
+            self.box_lookback,
+            self.pullback_lookback,
+            self.contraction_range_lookback,
+            self.contraction_short_lookback,
+            self.contraction_long_lookback,
+        )
+        if any(value <= 0 for value in lookbacks):
+            raise ValueError("all lookbacks must be positive")
+        if self.contraction_short_lookback > self.contraction_long_lookback:
+            raise ValueError("contraction_short_lookback must not exceed long lookback")
+        required = max(
+            self.box_lookback + 1,
+            self.pullback_lookback + 1,
+            self.contraction_range_lookback + 1,
+            self.contraction_long_lookback + 2,
+        )
+        if self.minimum_history_bars < required:
+            raise ValueError(f"minimum_history_bars must be at least {required}")
+        return self
 
 
 CONFIG = SwingScreeningConfig()
@@ -149,14 +172,14 @@ class BoxBreakoutStrategy:
         self.c = config
 
     def evaluate(self, bars: Sequence[DailyBar], i: IndicatorSnapshot) -> ScreeningResult:
-        if len(bars) < 21:
+        if len(bars) < self.c.box_lookback + 1:
             return ScreeningResult(
                 symbol=bars[-1].symbol if bars else "",
                 passed=False,
                 reasons=["FAILED: insufficient_history"],
             )
         latest = bars[-1]
-        prior = bars[-21:-1]
+        prior = bars[-(self.c.box_lookback + 1) : -1]
         hi = max(x.high for x in prior)
         lo = min(x.low for x in prior)
         av = avg([D(x.volume) for x in prior])
@@ -196,17 +219,18 @@ class TrendPullbackStrategy:
         self.c = config
 
     def evaluate(self, bars: Sequence[DailyBar], i: IndicatorSnapshot) -> ScreeningResult:
-        if len(bars) < 21:
+        required = max(self.c.pullback_lookback, self.c.contraction_short_lookback) + 1
+        if len(bars) < required:
             return ScreeningResult(
                 symbol=bars[-1].symbol if bars else "",
                 passed=False,
                 reasons=["FAILED: insufficient_history"],
             )
         latest = bars[-1]
-        prior = bars[-21:-1]
+        prior = bars[-(self.c.pullback_lookback + 1) : -1]
         peak = max(x.close for x in prior)
         av = avg([D(x.volume) for x in prior])
-        p5 = avg([D(x.volume) for x in bars[-6:-1]])
+        p5 = avg([D(x.volume) for x in bars[-(self.c.contraction_short_lookback + 1) : -1]])
         m = common_metrics(bars, i)
         ema = i.ema20 or ZERO
         m.update(
@@ -260,22 +284,26 @@ class VolatilityContractionBreakoutStrategy:
         self.c = config
 
     def evaluate(self, bars: Sequence[DailyBar], i: IndicatorSnapshot) -> ScreeningResult:
-        if len(bars) < 22:
+        required = max(self.c.contraction_range_lookback + 1, self.c.contraction_long_lookback + 2)
+        if len(bars) < required:
             return ScreeningResult(
                 symbol=bars[-1].symbol if bars else "",
                 passed=False,
                 reasons=["FAILED: insufficient_history"],
             )
         latest = bars[-1]
-        prior20 = bars[-21:-1]
-        prior10 = bars[-11:-1]
+        prior20 = bars[-(self.c.contraction_long_lookback + 1) : -1]
+        prior10 = bars[-(self.c.contraction_range_lookback + 1) : -1]
         hi = max(x.high for x in prior10)
         lo = min(x.low for x in prior10)
-        trs = [true_range(bars[n], bars[n - 1].close) for n in range(len(bars) - 21, len(bars) - 1)]
+        trs = [
+            true_range(bars[n], bars[n - 1].close)
+            for n in range(len(bars) - self.c.contraction_long_lookback - 1, len(bars) - 1)
+        ]
         tr20 = avg(trs)
-        tr5 = avg(trs[-5:])
+        tr5 = avg(trs[-self.c.contraction_short_lookback :])
         v20 = avg([D(x.volume) for x in prior20])
-        v5 = avg([D(x.volume) for x in bars[-6:-1]])
+        v5 = avg([D(x.volume) for x in bars[-(self.c.contraction_short_lookback + 1) : -1]])
         m = common_metrics(bars, i)
         m.update(
             previous_high10=hi,

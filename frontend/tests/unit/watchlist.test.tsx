@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WatchlistDashboard } from "@/features/watchlist/components/watchlist-dashboard";
 import { WatchlistDetail } from "@/features/watchlist/components/watchlist-detail";
 import { WatchlistLoading } from "@/features/watchlist/components/states";
-import { formatDecimal } from "@/features/watchlist/format";
+import { formatDecimal, formatRatioPercent } from "@/features/watchlist/format";
 import type { DecimalString, WatchlistItem } from "@/features/watchlist/types";
 const push=vi.fn();let query="";
 vi.mock("next/navigation",()=>({useRouter:()=>({push}),useSearchParams:()=>new URLSearchParams(query)}));
@@ -18,3 +18,5 @@ it("shows a safe API error and retries",async()=>{const fetch=vi.spyOn(globalThi
 it("sorts history newest first and navigates when selected",async()=>{vi.spyOn(globalThis,"fetch").mockImplementation(url=>String(url).endsWith("/history")?response(["2026-07-26","2026-07-28","2026-07-27"]):response(items));render(<WatchlistDashboard/>);const select=await screen.findByLabelText("조회 날짜") as HTMLSelectElement;await waitFor(()=>expect([...select.options].map(o=>o.value)).toEqual(["2026-07-28","2026-07-27","2026-07-26"]));fireEvent.change(select,{target:{value:"2026-07-26"}});expect(push).toHaveBeenCalledWith("/watchlist?date=2026-07-26")})});
 describe("watchlist detail",()=>{it("renders metrics and reasons with distinct warning sections",async()=>{vi.spyOn(globalThis,"fetch").mockReturnValue(response({...items[1],trading_date:"2026-07-28",metrics:{rsi:"55.500"},reasons:["추세 통과"],snapshot:{symbol:"005930",passed:true,metrics:{rsi:"55.500"},reasons:["추세 통과"],warnings:["스크리닝 주의"]}}));render(<WatchlistDetail tradingDate="2026-07-28" symbol="005930"/>);expect(await screen.findByRole("heading",{name:"지표"})).toBeInTheDocument();expect(screen.getByText("55.5")).toBeVisible();expect(screen.getByText("추세 통과")).toBeVisible();expect(screen.getByRole("heading",{name:"랭킹 경고"}).parentElement).toHaveClass("ranking-warnings");expect(screen.getByRole("heading",{name:"스크리닝 경고"}).parentElement).toHaveClass("screening-warnings")})});
 describe("decimal contract",()=>{it.each([["91.120000","91.12"],["91.000000","91"],["0.12345678901234567890","0.1234567890123456789"],["999999999999999999999.1","999999999999999999999.1"]])("formats %s safely",(input,expected)=>expect(formatDecimal(input)).toBe(expected));it("keeps Decimal values as strings without floating conversion",()=>{const decimal:DecimalString="1.00000000000000000001";expect(typeof decimal).toBe("string");const source=formatDecimal.toString();expect(source).not.toContain("Number(");expect(source).not.toContain("parseFloat")})});
+
+describe("exact ratio percentage",()=>{it.each([["0.03","3%"],["0.00125","0.125%"],["-0.03","-3%"],["0","0%"],["12345678901234567890.123","1234567890123456789012.3%"],[null,"—"]])("formats %s exactly",(input,expected)=>{expect(formatRatioPercent(input)).toBe(expected)})});

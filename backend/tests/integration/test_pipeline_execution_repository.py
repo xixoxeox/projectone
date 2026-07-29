@@ -119,3 +119,46 @@ async def test_acquire_waits_for_namespaced_date_lock(
 
     result = await asyncio.wait_for(competing_acquire, timeout=2)
     assert result.status == ExecutionAcquireStatus.ACQUIRED
+
+
+async def test_successful_empty_execution_is_authoritative_watchlist_date(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    from screener.modules.market.watchlist.repository import WatchlistRepository
+
+    empty_day = date(2026, 8, 1)
+    failed_day = date(2026, 8, 2)
+    async with sessions() as session:
+        session.add_all(
+            [
+                WatchlistPipelineExecution(
+                    trading_date=empty_day,
+                    trigger_type="manual",
+                    status="succeeded",
+                    stage="completed",
+                    started_at=datetime.now(UTC),
+                    finished_at=datetime.now(UTC),
+                    candidate_count=0,
+                    persisted_count=0,
+                ),
+                WatchlistPipelineExecution(
+                    trading_date=failed_day,
+                    trigger_type="manual",
+                    status="failed",
+                    stage="screening",
+                    started_at=datetime.now(UTC),
+                    finished_at=datetime.now(UTC),
+                    candidate_count=None,
+                    persisted_count=None,
+                ),
+            ]
+        )
+        await session.commit()
+        repository = WatchlistRepository(session)
+        assert empty_day in await repository.history()
+        assert failed_day not in await repository.history()
+        assert await repository.has_successful_execution(empty_day)
+        assert not await repository.has_successful_execution(failed_day)
+        assert await repository.list(empty_day) == []
+        assert await repository.latest() == []
+        assert await repository.get(empty_day, "MISSING") is None
