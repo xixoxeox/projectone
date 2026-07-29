@@ -27,3 +27,15 @@ Swing ranking is trend 25%, setup 45%, liquidity 15%, volatility 15%. Ordering i
 The existing admin run, execution ownership, scheduler, notifications, and sync stages are reused. Technical conditions identify observation candidates and do not guarantee returns or initiate trades.
 
 Limitations: daily bars only; no intraday confirmation; no order-book liquidity; no market-cap filter; no sector/theme classifications; no fundamentals; no corporate-action adjustment beyond existing data; no benchmark-relative strength; no automatic trading; fixed thresholds are not regime-optimized; KRX holidays are limited to persisted market dates.
+
+## Exact windows and configuration ownership
+
+The target bar is index `N`. Box volume/high/low and pullback peak use `N-20..N-1`; contraction range uses `N-10..N-1`. The contraction true-range series evaluates bars `N-20..N-1` (Python `range(len(bars)-21, len(bars)-1)`), with each value using its immediately preceding close. The target breakout bar `N` is excluded from both prior-20 and trailing prior-5 averages.
+
+One immutable `SwingScreeningConfig` instance owns universe thresholds, setup thresholds, liquidity normalization, and `maximum_candidates`; it is injected into strategy, ranker, pipeline, and definitions. Scoring helpers clamp to 0–100 and quantize to 0.01 using `ROUND_HALF_UP`: high-is-good is linear `(value-min)/(max-min)×100`, low-is-good is `(worst-value)/(worst-best)×100`, and pullback depth is triangular around the ideal. Overall rank is `trend×.25 + setup×.45 + liquidity×.15 + volatility×.15`.
+
+## Empty runs, reads, and UI
+
+A succeeded pipeline execution is authoritative even when `persisted_count=0`. Watchlist latest/history combine successful execution metadata with existing entry rows, so an empty successful date returns `[]` and never falls back to yesterday. A date without successful execution remains 404. The UI builds its date selector from that history, stores `date` in the query string, reloads the selected date, and applies setup, exact score/trading-value, symbol, warning, and deterministic sort filters client-side. Run control reuses `/admin/watchlist/run` and execution metadata endpoints.
+
+The bulk bar query is bounded to the latest 366 calendar days through the target date, ordered by symbol/date, and remains one query rather than N+1. Historical snapshots lacking setup fields deserialize to empty/null defaults and continue through existing watchlist details and backtest signals.

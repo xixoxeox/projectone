@@ -3,7 +3,7 @@
 import logging
 import uuid
 from collections import defaultdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -27,6 +27,7 @@ from screener.modules.market.pipeline.repository import PipelineExecutionReposit
 from screener.modules.market.ranking.ranker import CandidateRanker, SwingCandidateRanker
 from screener.modules.market.scanning.models import ScanInput
 from screener.modules.market.scanning.scanner import CandidateScanner
+from screener.modules.market.screening.swing import CONFIG, SwingScreeningConfig
 from screener.modules.market.sync import SyncCoordinator
 from screener.modules.market.watchlist.repository import WatchlistRepository
 
@@ -45,10 +46,12 @@ class DailyWatchlistPipeline:
         ranker: CandidateRanker | SwingCandidateRanker,
         timezone: str = "Asia/Seoul",
         stale_after_seconds: int = 7200,
+        screening_config: SwingScreeningConfig = CONFIG,
     ) -> None:
         self.sessions, self.sync, self.indicators = sessions, sync, indicators
         self.scanner, self.ranker, self.timezone = scanner, ranker, ZoneInfo(timezone)
         self.stale_after_seconds = stale_after_seconds
+        self.screening_config = screening_config
 
     async def run(
         self, trading_date: date | None = None, trigger: TriggerType = TriggerType.MANUAL
@@ -97,7 +100,7 @@ class DailyWatchlistPipeline:
             candidates = self.scanner.scan(inputs)
             stage = PipelineStage.CANDIDATE_RANKING
             await self._stage(run.id, stage)
-            ranked = self.ranker.rank(candidates)[:30]
+            ranked = self.ranker.rank(candidates)[: self.screening_config.maximum_candidates]
             stage = PipelineStage.WATCHLIST_PERSISTENCE
             await self._stage(run.id, stage)
             async with self.sessions() as session:
@@ -156,7 +159,9 @@ class DailyWatchlistPipeline:
                 await session.scalars(
                     select(DailyBarRecord)
                     .where(
-                        DailyBarRecord.trading_date <= target, DailyBarRecord.symbol.in_(eligible)
+                        DailyBarRecord.trading_date <= target,
+                        DailyBarRecord.trading_date >= target - timedelta(days=366),
+                        DailyBarRecord.symbol.in_(eligible),
                     )
                     .order_by(DailyBarRecord.symbol, DailyBarRecord.trading_date)
                 )

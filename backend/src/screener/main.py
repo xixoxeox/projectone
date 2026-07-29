@@ -24,7 +24,7 @@ from screener.modules.market.ranking.ranker import SwingCandidateRanker
 from screener.modules.market.scanning.scanner import CandidateScanner
 from screener.modules.market.scheduler import build_scheduler
 from screener.modules.market.screening.engine import ScreeningEngine
-from screener.modules.market.screening.swing import MultiSetupSwingStrategy
+from screener.modules.market.screening.swing import CONFIG, MultiSetupSwingStrategy
 from screener.modules.market.sync import (
     DailyBarSyncService,
     StockSyncService,
@@ -77,10 +77,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         SessionFactory,
         app.state.sync_coordinator,
         IndicatorService(),
-        CandidateScanner(ScreeningEngine(MultiSetupSwingStrategy())),
-        SwingCandidateRanker(),
+        CandidateScanner(ScreeningEngine(MultiSetupSwingStrategy(CONFIG))),
+        SwingCandidateRanker(CONFIG),
         settings.watchlist_job_timezone,
         settings.watchlist_pipeline_stale_after_seconds,
+        CONFIG,
     )
     notification_providers = []
     if settings.slack_webhook_url:

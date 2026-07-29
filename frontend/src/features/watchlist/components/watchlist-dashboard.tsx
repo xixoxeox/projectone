@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getLatestWatchlist, getWatchlistByDate, getWatchlistHistory, WatchlistApiError } from "../api";
@@ -31,5 +32,6 @@ export function WatchlistDashboard() {
     {selectedDate && <p className="as-of" aria-live="polite">기준일 <strong>{selectedDate}</strong></p>}
     {status === "loading" && <WatchlistLoading/>}{status === "ready" && <section className="watchlist-list" aria-label="순위별 관심 종목">{items.map(item => <WatchlistCard key={item.symbol} item={item} tradingDate={selectedDate}/>)}</section>}
     {status === "empty" && <WatchlistEmpty/>}{status === "not-found" && <WatchlistEmpty notFound/>}{status === "error" && <WatchlistError onRetry={() => setAttempt(value => value + 1)}/>} 
+    <nav aria-label="주요 메뉴"><Link href="/screener">스크리너</Link><Link href="/backtests">백테스트</Link></nav>
   </main>;
 }

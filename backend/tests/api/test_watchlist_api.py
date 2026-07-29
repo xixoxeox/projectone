@@ -55,6 +55,9 @@ class FakeRepository:
             None,
         )
 
+    async def has_successful_execution(self, trading_date: date) -> bool:
+        return False
+
 
 @pytest.fixture
 def client() -> TestClient:

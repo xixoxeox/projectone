@@ -181,8 +181,11 @@ class SwingCandidateRanker:
 
     _priority = {"volatility_contraction_breakout": 0, "box_breakout": 1, "trend_pullback": 2}
 
-    def __init__(self, minimum_liquidity: Decimal = Decimal("1000000000")) -> None:
-        self.minimum_liquidity = minimum_liquidity
+    def __init__(self, config: object | None = None) -> None:
+        from screener.modules.market.screening.swing import CONFIG, SwingScreeningConfig
+
+        self.config = config if isinstance(config, SwingScreeningConfig) else CONFIG
+        self.minimum_liquidity = self.config.minimum_average_trading_value_20
 
     def rank(self, results: Sequence[ScreeningResult]) -> list[RankedCandidate]:
         CandidateRanker._validate_request(results)

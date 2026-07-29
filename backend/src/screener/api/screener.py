@@ -1,14 +1,18 @@
 """Authenticated canonical screener definition contract."""
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from screener.modules.identity.presentation.dependencies import CurrentUser
-from screener.modules.market.screening.swing import CONFIG
+from screener.modules.market.screening.swing import CONFIG, SwingScreeningConfig
 
 router = APIRouter(prefix="/screener", tags=["screener"])
+
+
+def get_screener_config() -> SwingScreeningConfig:
+    return CONFIG
 
 
 class SetupDefinition(BaseModel):
@@ -26,10 +30,13 @@ class ScreenerDefinitions(BaseModel):
 
 
 @router.get("/definitions", response_model=ScreenerDefinitions)
-async def definitions(_user: CurrentUser) -> ScreenerDefinitions:
+async def definitions(
+    _user: CurrentUser,
+    config: Annotated[SwingScreeningConfig, Depends(get_screener_config)],
+) -> ScreenerDefinitions:
     return ScreenerDefinitions(
-        screener_name=CONFIG.screener_name,
-        screener_version=CONFIG.screener_version,
+        screener_name=config.screener_name,
+        screener_version=config.screener_version,
         setups=[
             SetupDefinition(
                 key="box_breakout",
@@ -47,7 +54,7 @@ async def definitions(_user: CurrentUser) -> ScreenerDefinitions:
                 description="가격·거래량 변동성 축소 후 돌파한 후보",
             ),
         ],
-        defaults=CONFIG.model_dump(mode="json"),
+        defaults=config.model_dump(mode="json"),
         limitations=[
             "daily_bars_only",
             "no_market_cap_filter",

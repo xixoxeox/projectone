@@ -140,6 +140,7 @@ def _result(
         primary_setup=setup if passed else None,
         setup_scores={setup: score} if passed else {},
         setup_metrics={setup: metrics},
+        evaluated_setup=setup,
     )
 
 
@@ -270,7 +271,7 @@ class VolatilityContractionBreakoutStrategy:
         prior10 = bars[-11:-1]
         hi = max(x.high for x in prior10)
         lo = min(x.low for x in prior10)
-        trs = [true_range(bars[n], bars[n - 1].close) for n in range(len(bars) - 20, len(bars))]
+        trs = [true_range(bars[n], bars[n - 1].close) for n in range(len(bars) - 21, len(bars) - 1)]
         tr20 = avg(trs)
         tr5 = avg(trs[-5:])
         v20 = avg([D(x.volume) for x in prior20])
@@ -369,16 +370,14 @@ class MultiSetupSwingStrategy:
         metrics = dict(common)
         setup_metrics = {}
         rules = {}
-        reasons = []
+        reasons: list[str] = []
         for result in results:
             setup_metrics.update(result.setup_metrics)
-            rules.update(
-                {
-                    f"{result.primary_setup or 'failed'}:{k}": v
-                    for k, v in result.rule_evaluations.items()
-                }
-            )
-            reasons.extend(result.reasons)
+            setup = result.evaluated_setup
+            if setup is None:
+                continue
+            rules.update({f"{setup}:{k}": v for k, v in result.rule_evaluations.items()})
+            reasons.extend(f"{setup}: {reason}" for reason in result.reasons)
         return ScreeningResult(
             symbol=symbol,
             passed=bool(matched),

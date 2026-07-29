@@ -38,3 +38,4 @@ class ScreeningResult(BaseModel):
     configuration_snapshot: dict[str, Any] = Field(default_factory=dict)
     setup_metrics: dict[str, dict[str, Decimal]] = Field(default_factory=dict)
     rule_evaluations: dict[str, bool] = Field(default_factory=dict)
+    evaluated_setup: str | None = None

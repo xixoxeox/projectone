@@ -9,6 +9,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from screener.modules.market.infrastructure.models import WatchlistPipelineExecution
 from screener.modules.market.ranking.models import RankedCandidate
 from screener.modules.market.screening.models import ScreeningResult
 from screener.modules.market.watchlist.models import WatchlistEntry, WatchlistEntryRecord
@@ -54,6 +55,13 @@ class WatchlistRepository:
 
     async def latest(self) -> builtins.list[WatchlistEntry]:
         """Return the newest stored trading date, or an empty list."""
+        execution_date = await self._session.scalar(
+            select(func.max(WatchlistPipelineExecution.trading_date)).where(
+                WatchlistPipelineExecution.status == "succeeded"
+            )
+        )
+        if execution_date is not None:
+            return await self.list(execution_date)
         latest_date = await self._session.scalar(
             select(func.max(WatchlistEntryRecord.trading_date))
         )
@@ -63,12 +71,30 @@ class WatchlistRepository:
 
     async def history(self) -> builtins.list[date]:
         """Return stored trading dates ordered from newest to oldest."""
-        dates = await self._session.scalars(
+        entry_dates = await self._session.scalars(
             select(WatchlistEntryRecord.trading_date)
             .distinct()
             .order_by(WatchlistEntryRecord.trading_date.desc())
         )
-        return list(dates)
+        execution_dates = await self._session.scalars(
+            select(WatchlistPipelineExecution.trading_date)
+            .where(WatchlistPipelineExecution.status == "succeeded")
+            .distinct()
+        )
+        return sorted(set(entry_dates) | set(execution_dates), reverse=True)
+
+    async def has_successful_execution(self, trading_date: date) -> bool:
+        return (
+            await self._session.scalar(
+                select(WatchlistPipelineExecution.id)
+                .where(
+                    WatchlistPipelineExecution.trading_date == trading_date,
+                    WatchlistPipelineExecution.status == "succeeded",
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     async def get(self, trading_date: date, symbol: str) -> WatchlistEntry | None:
         """Return one entry for a date and symbol, if it exists."""

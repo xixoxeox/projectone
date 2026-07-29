@@ -106,3 +106,33 @@ def test_swing_ranker_uses_canonical_symbol_tie_break() -> None:
     ranked = SwingCandidateRanker().rank([result("BBB"), result("AAA")])
     assert [x.symbol for x in ranked] == ["AAA", "BBB"]
     assert [x.rank for x in ranked] == [1, 2]
+
+
+def test_contraction_true_range_windows_exclude_latest_breakout_bar() -> None:
+    from screener.modules.market.screening.swing import VolatilityContractionBreakoutStrategy
+
+    source = bars(61)
+    baseline = VolatilityContractionBreakoutStrategy().evaluate(source, indicators())
+    extreme = list(source)
+    extreme[-1] = extreme[-1].model_copy(update={"high": Decimal("999999999")})
+    changed = VolatilityContractionBreakoutStrategy().evaluate(extreme, indicators())
+    for key in (
+        "prior20_average_true_range",
+        "prior5_average_true_range",
+        "true_range_contraction_ratio",
+    ):
+        assert changed.metrics[key] == baseline.metrics[key]
+    assert changed.passed == baseline.passed
+
+
+def test_multi_setup_preserves_unique_failed_rule_audit_keys() -> None:
+    weak = IndicatorSnapshot(
+        sma20=Decimal("1"), sma60=Decimal("2"), ema20=Decimal("1"), atr14=Decimal("1")
+    )
+    result = MultiSetupSwingStrategy().evaluate(bars(), weak)
+    prefixes = {key.split(":", 1)[0] for key in result.rule_evaluations}
+    assert prefixes == {"box_breakout", "trend_pullback", "volatility_contraction_breakout"}
+    assert "box_breakout:trend" in result.rule_evaluations
+    assert "trend_pullback:trend" in result.rule_evaluations
+    assert "volatility_contraction_breakout:trend" in result.rule_evaluations
+    assert all(not reason.startswith("failed:") for reason in result.reasons)

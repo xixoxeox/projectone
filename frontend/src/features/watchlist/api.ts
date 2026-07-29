@@ -1,4 +1,4 @@
-import type { ScreenerDefinitions, WatchlistDetail, WatchlistItem } from "./types";
+import type { ScreenerDefinitions, ScreeningExecution, WatchlistDetail, WatchlistItem } from "./types";
 
 const API_BASE_PATH = process.env.NEXT_PUBLIC_API_BASE_PATH ?? "/api/v1";
 
@@ -26,3 +26,9 @@ export const getWatchlistByDate = (date: string) => get<WatchlistItem[]>(`/watch
 export const getWatchlistDetail = (date: string, symbol: string) =>
   get<WatchlistDetail>(`/watchlist/${encodeURIComponent(date)}/${encodeURIComponent(symbol)}`);
 export const getScreenerDefinitions = () => get<ScreenerDefinitions>("/screener/definitions");
+export const getLatestScreeningExecution = () => get<ScreeningExecution>("/admin/watchlist/executions/latest");
+export async function runScreening(): Promise<ScreeningExecution> {
+  const response=await fetch(`${API_BASE_PATH}/admin/watchlist/run`,{method:"POST",headers:{Accept:"application/json","Content-Type":"application/json"},body:"{}"});
+  if(!response.ok) throw new WatchlistApiError(response.status);
+  return response.json() as Promise<ScreeningExecution>;
+}
