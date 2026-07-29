@@ -3,11 +3,12 @@
 import logging
 import uuid
 from collections import defaultdict
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from screener.modules.market.domain import DailyBar
 from screener.modules.market.indicators.service import IndicatorService
@@ -155,15 +156,31 @@ class DailyWatchlistPipeline:
                 Stock.listing_status == "listed",
                 Stock.security_type == "common_stock",
             )
+            ranked_bars = (
+                select(
+                    *(
+                        getattr(DailyBarRecord, column.name)
+                        for column in DailyBarRecord.__table__.columns
+                    ),
+                    func.row_number()
+                    .over(
+                        partition_by=DailyBarRecord.symbol,
+                        order_by=DailyBarRecord.trading_date.desc(),
+                    )
+                    .label("history_rank"),
+                )
+                .where(
+                    DailyBarRecord.trading_date <= target,
+                    DailyBarRecord.symbol.in_(eligible),
+                )
+                .subquery()
+            )
+            bounded_bar = aliased(DailyBarRecord, ranked_bars)
             records = (
                 await session.scalars(
-                    select(DailyBarRecord)
-                    .where(
-                        DailyBarRecord.trading_date <= target,
-                        DailyBarRecord.trading_date >= target - timedelta(days=366),
-                        DailyBarRecord.symbol.in_(eligible),
-                    )
-                    .order_by(DailyBarRecord.symbol, DailyBarRecord.trading_date)
+                    select(bounded_bar)
+                    .where(ranked_bars.c.history_rank <= self.screening_config.minimum_history_bars)
+                    .order_by(bounded_bar.symbol, bounded_bar.trading_date)
                 )
             ).all()
         grouped: dict[str, list[DailyBar]] = defaultdict(list)

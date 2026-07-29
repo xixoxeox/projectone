@@ -44,6 +44,7 @@ class SwingScreeningConfig(BaseModel):
     maximum_scored_breakout_pct: Decimal = D("0.05")
     maximum_scored_volume_ratio: Decimal = D("3.00")
     pullback_lookback: int = 20
+    pullback_volume_lookback: int = 5
     minimum_pullback_depth_pct: Decimal = D("0.03")
     ideal_pullback_depth_pct: Decimal = D("0.06")
     maximum_pullback_depth_pct: Decimal = D("0.12")
@@ -66,6 +67,7 @@ class SwingScreeningConfig(BaseModel):
         lookbacks = (
             self.box_lookback,
             self.pullback_lookback,
+            self.pullback_volume_lookback,
             self.contraction_range_lookback,
             self.contraction_short_lookback,
             self.contraction_long_lookback,
@@ -74,9 +76,13 @@ class SwingScreeningConfig(BaseModel):
             raise ValueError("all lookbacks must be positive")
         if self.contraction_short_lookback > self.contraction_long_lookback:
             raise ValueError("contraction_short_lookback must not exceed long lookback")
+        if self.pullback_volume_lookback > self.pullback_lookback:
+            raise ValueError("pullback_volume_lookback must not exceed pullback lookback")
         required = max(
+            20,
             self.box_lookback + 1,
             self.pullback_lookback + 1,
+            self.pullback_volume_lookback + 1,
             self.contraction_range_lookback + 1,
             self.contraction_long_lookback + 2,
         )
@@ -185,11 +191,11 @@ class BoxBreakoutStrategy:
         av = avg([D(x.volume) for x in prior])
         m = common_metrics(bars, i)
         m.update(
-            previous_high20=hi,
-            previous_low20=lo,
+            previous_box_high=hi,
+            previous_box_low=lo,
             box_width_pct=(hi - lo) / hi if hi else ZERO,
             breakout_pct=(latest.close - hi) / hi if hi else ZERO,
-            previous_average_volume20=av,
+            previous_average_volume=av,
             volume_ratio=D(latest.volume) / av if av else ZERO,
         )
         rules = {
@@ -219,7 +225,7 @@ class TrendPullbackStrategy:
         self.c = config
 
     def evaluate(self, bars: Sequence[DailyBar], i: IndicatorSnapshot) -> ScreeningResult:
-        required = max(self.c.pullback_lookback, self.c.contraction_short_lookback) + 1
+        required = max(self.c.pullback_lookback, self.c.pullback_volume_lookback) + 1
         if len(bars) < required:
             return ScreeningResult(
                 symbol=bars[-1].symbol if bars else "",
@@ -230,16 +236,16 @@ class TrendPullbackStrategy:
         prior = bars[-(self.c.pullback_lookback + 1) : -1]
         peak = max(x.close for x in prior)
         av = avg([D(x.volume) for x in prior])
-        p5 = avg([D(x.volume) for x in bars[-(self.c.contraction_short_lookback + 1) : -1]])
+        p5 = avg([D(x.volume) for x in bars[-(self.c.pullback_volume_lookback + 1) : -1]])
         m = common_metrics(bars, i)
         ema = i.ema20 or ZERO
         m.update(
             previous_close=bars[-2].close,
-            previous_peak_close20=peak,
+            previous_peak_close=peak,
             pullback_depth_pct=(peak - latest.close) / peak if peak else ZERO,
             ema20_distance_pct=abs(latest.close - ema) / ema if ema else ZERO,
-            prior5_average_volume=p5,
-            previous_average_volume20=av,
+            prior_short_average_volume=p5,
+            previous_average_volume=av,
             prior5_volume_ratio=p5 / av if av else ZERO,
             rebound_body_pct=(latest.close - latest.open) / latest.open if latest.open else ZERO,
         )
@@ -306,14 +312,14 @@ class VolatilityContractionBreakoutStrategy:
         v5 = avg([D(x.volume) for x in bars[-(self.c.contraction_short_lookback + 1) : -1]])
         m = common_metrics(bars, i)
         m.update(
-            previous_high10=hi,
-            previous_low10=lo,
+            previous_range_high=hi,
+            previous_range_low=lo,
             contraction_range_pct=(hi - lo) / hi if hi else ZERO,
-            prior5_average_true_range=tr5,
-            prior20_average_true_range=tr20,
+            prior_short_average_true_range=tr5,
+            prior_long_average_true_range=tr20,
             true_range_contraction_ratio=tr5 / tr20 if tr20 else ZERO,
-            prior5_average_volume=v5,
-            prior20_average_volume=v20,
+            prior_short_average_volume=v5,
+            prior_long_average_volume=v20,
             prior5_volume_ratio=v5 / v20 if v20 else ZERO,
             breakout_volume_ratio=D(latest.volume) / v20 if v20 else ZERO,
         )

@@ -76,7 +76,7 @@ def test_box_previous_range_excludes_latest_without_mutation() -> None:
     )
     original = list(source)
     result = BoxBreakoutStrategy().evaluate(source, indicators())
-    assert result.setup_metrics[SwingSetup.BOX_BREAKOUT]["previous_high20"] != D("999999")
+    assert result.setup_metrics[SwingSetup.BOX_BREAKOUT]["previous_box_high"] != D("999999")
     assert source == original
 
 
@@ -117,8 +117,8 @@ def test_contraction_true_range_windows_exclude_latest_breakout_bar() -> None:
     extreme[-1] = extreme[-1].model_copy(update={"high": Decimal("999999999")})
     changed = VolatilityContractionBreakoutStrategy().evaluate(extreme, indicators())
     for key in (
-        "prior20_average_true_range",
-        "prior5_average_true_range",
+        "prior_long_average_true_range",
+        "prior_short_average_true_range",
         "true_range_contraction_ratio",
     ):
         assert changed.metrics[key] == baseline.metrics[key]
@@ -148,28 +148,69 @@ def test_custom_lookbacks_drive_actual_windows_and_validate_relationships() -> N
     )
 
     custom = SwingScreeningConfig(
-        minimum_history_bars=12,
+        minimum_history_bars=20,
         box_lookback=3,
         pullback_lookback=4,
+        pullback_volume_lookback=2,
         contraction_range_lookback=3,
         contraction_short_lookback=2,
         contraction_long_lookback=6,
     )
-    source = bars(12)
+    source = bars(20)
     box = BoxBreakoutStrategy(custom).evaluate(source, indicators())
-    assert box.metrics["previous_high20"] == max(item.high for item in source[-4:-1])
+    assert box.metrics["previous_box_high"] == max(item.high for item in source[-4:-1])
     pullback = TrendPullbackStrategy(custom).evaluate(source, indicators())
-    assert pullback.metrics["previous_peak_close20"] == max(item.close for item in source[-5:-1])
+    assert pullback.metrics["previous_peak_close"] == max(item.close for item in source[-5:-1])
     contraction = VolatilityContractionBreakoutStrategy(custom).evaluate(source, indicators())
-    assert contraction.metrics["previous_high10"] == max(item.high for item in source[-4:-1])
+    assert contraction.metrics["previous_range_high"] == max(item.high for item in source[-4:-1])
     expected_long = [
         true_range(source[n], source[n - 1].close) for n in range(len(source) - 7, len(source) - 1)
     ]
-    assert contraction.metrics["prior20_average_true_range"] == sum(expected_long, D("0")) / D("6")
-    assert contraction.metrics["prior5_average_true_range"] == sum(expected_long[-2:], D("0")) / D(
-        "2"
+    assert contraction.metrics["prior_long_average_true_range"] == sum(expected_long, D("0")) / D(
+        "6"
     )
+    assert contraction.metrics["prior_short_average_true_range"] == sum(
+        expected_long[-2:], D("0")
+    ) / D("2")
     with pytest.raises(ValidationError):
         SwingScreeningConfig(contraction_short_lookback=6, contraction_long_lookback=5)
     with pytest.raises(ValidationError):
         SwingScreeningConfig(minimum_history_bars=10, contraction_long_lookback=20)
+
+
+def test_configuration_rejects_short_common_history_and_is_executable() -> None:
+    from pydantic import ValidationError
+
+    from screener.modules.market.screening.swing import SwingScreeningConfig
+
+    with pytest.raises(ValidationError):
+        SwingScreeningConfig(minimum_history_bars=19)
+    config = SwingScreeningConfig(
+        minimum_history_bars=20,
+        box_lookback=3,
+        pullback_lookback=4,
+        pullback_volume_lookback=2,
+        contraction_range_lookback=3,
+        contraction_short_lookback=2,
+        contraction_long_lookback=6,
+    )
+    result = MultiSetupSwingStrategy(config).evaluate(bars(20), indicators())
+    assert "insufficient_history" not in result.reasons
+
+
+def test_pullback_volume_window_is_independent_from_contraction_window() -> None:
+    from screener.modules.market.screening.swing import SwingScreeningConfig, TrendPullbackStrategy
+
+    source = bars(21)
+    first = SwingScreeningConfig(
+        minimum_history_bars=21,
+        pullback_lookback=5,
+        pullback_volume_lookback=2,
+        contraction_short_lookback=2,
+        contraction_long_lookback=6,
+    )
+    second = first.model_copy(update={"contraction_short_lookback": 5})
+    one = TrendPullbackStrategy(first).evaluate(source, indicators())
+    two = TrendPullbackStrategy(second).evaluate(source, indicators())
+    assert one.metrics["prior_short_average_volume"] == two.metrics["prior_short_average_volume"]
+    assert one.passed == two.passed
