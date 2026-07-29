@@ -29,3 +29,11 @@ class ScreeningResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     metrics: dict[str, Decimal] = Field(default_factory=dict)
+    matched_setups: list[str] = Field(default_factory=list)
+    primary_setup: str | None = None
+    setup_scores: dict[str, Decimal] = Field(default_factory=dict)
+    setup_metrics: dict[str, dict[str, Decimal]] = Field(default_factory=dict)
+    rule_evaluations: dict[str, bool] = Field(default_factory=dict)
+    screener_name: str | None = None
+    screener_version: str | None = None
+    configuration_snapshot: dict[str, str | int] = Field(default_factory=dict)

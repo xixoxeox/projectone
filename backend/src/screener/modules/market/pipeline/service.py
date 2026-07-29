@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from screener.modules.market.domain import DailyBar
@@ -23,6 +23,7 @@ from screener.modules.market.pipeline.repository import PipelineExecutionReposit
 from screener.modules.market.ranking.ranker import CandidateRanker
 from screener.modules.market.scanning.models import ScanInput
 from screener.modules.market.scanning.scanner import CandidateScanner
+from screener.modules.market.screening.swing import SwingScreeningConfig
 from screener.modules.market.sync import SyncCoordinator
 from screener.modules.market.watchlist.repository import WatchlistRepository
 
@@ -41,10 +42,12 @@ class DailyWatchlistPipeline:
         ranker: CandidateRanker,
         timezone: str = "Asia/Seoul",
         stale_after_seconds: int = 7200,
+        screening_config: SwingScreeningConfig | None = None,
     ) -> None:
         self.sessions, self.sync, self.indicators = sessions, sync, indicators
         self.scanner, self.ranker, self.timezone = scanner, ranker, ZoneInfo(timezone)
         self.stale_after_seconds = stale_after_seconds
+        self.screening_config = screening_config or SwingScreeningConfig()
 
     async def run(
         self, trading_date: date | None = None, trigger: TriggerType = TriggerType.MANUAL
@@ -93,9 +96,20 @@ class DailyWatchlistPipeline:
             candidates = self.scanner.scan(inputs)
             stage = PipelineStage.CANDIDATE_RANKING
             await self._stage(run.id, stage)
-            ranked = self.ranker.rank(candidates)
+            ranked = self.ranker.rank(candidates)[: self.screening_config.maximum_candidates]
             if not ranked:
-                return await self._finish_skipped(run.id, target, started, "no_candidates", 0)
+                async with self.sessions() as session:
+                    await WatchlistRepository(session).save(target, [])
+                    await session.commit()
+                async with self.sessions() as session:
+                    record = await PipelineExecutionRepository(session).finish(
+                        run.id,
+                        status=ExecutionStatus.SUCCEEDED,
+                        stage=PipelineStage.COMPLETED,
+                        candidate_count=0,
+                        persisted_count=0,
+                    )
+                return self._result(record)
             stage = PipelineStage.WATCHLIST_PERSISTENCE
             await self._stage(run.id, stage)
             async with self.sessions() as session:
@@ -144,10 +158,24 @@ class DailyWatchlistPipeline:
 
     async def _inputs(self, target: date) -> list[ScanInput]:
         async with self.sessions() as session:
+            numbered = (
+                select(
+                    DailyBarRecord,
+                    func.row_number()
+                    .over(
+                        partition_by=DailyBarRecord.symbol,
+                        order_by=DailyBarRecord.trading_date.desc(),
+                    )
+                    .label("recent_rank"),
+                )
+                .where(DailyBarRecord.trading_date <= target)
+                .subquery()
+            )
             records = (
                 await session.scalars(
                     select(DailyBarRecord)
-                    .where(DailyBarRecord.trading_date <= target)
+                    .join(numbered, DailyBarRecord.id == numbered.c.id)
+                    .where(numbered.c.recent_rank <= self.screening_config.minimum_history_bars)
                     .order_by(DailyBarRecord.symbol, DailyBarRecord.trading_date)
                 )
             ).all()

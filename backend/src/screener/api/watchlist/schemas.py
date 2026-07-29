@@ -17,6 +17,16 @@ class WatchlistItemResponse(BaseModel):
     total_score: Decimal
     component_scores: dict[str, Decimal]
     warnings: list[str]
+    primary_setup: str | None = None
+    matched_setups: list[str] = []
+    screener_name: str | None = None
+    screener_version: str | None = None
+    latest_close: Decimal | None = None
+    average_trading_value_20: Decimal | None = None
+    volume_ratio: Decimal | None = None
+    prior_short_volume_ratio: Decimal | None = None
+    breakout_volume_ratio: Decimal | None = None
+    atr_pct: Decimal | None = None
 
     @classmethod
     def from_entry(cls, entry: WatchlistEntry) -> "WatchlistItemResponse":
@@ -26,6 +36,21 @@ class WatchlistItemResponse(BaseModel):
             total_score=entry.total_score,
             component_scores=entry.component_scores,
             warnings=entry.warnings,
+            primary_setup=entry.snapshot.primary_setup,
+            matched_setups=entry.snapshot.matched_setups,
+            screener_name=entry.snapshot.screener_name,
+            screener_version=entry.snapshot.screener_version,
+            **{
+                key: entry.snapshot.metrics.get(key)
+                for key in (
+                    "latest_close",
+                    "average_trading_value_20",
+                    "volume_ratio",
+                    "prior_short_volume_ratio",
+                    "breakout_volume_ratio",
+                    "atr_pct",
+                )
+            },
         )
 
 
