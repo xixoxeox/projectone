@@ -33,8 +33,13 @@ def entry(symbol: str = "005930", trading_date: date = date(2026, 7, 28)) -> Wat
 
 
 class FakeRepository:
-    def __init__(self, entries: list[WatchlistEntry] | None = None) -> None:
+    def __init__(
+        self,
+        entries: list[WatchlistEntry] | None = None,
+        successful_dates: set[date] | None = None,
+    ) -> None:
         self.entries = entries or []
+        self.successful_dates = successful_dates
 
     async def latest(self) -> list[WatchlistEntry]:
         return self.entries
@@ -44,6 +49,11 @@ class FakeRepository:
 
     async def list(self, trading_date: date) -> list[WatchlistEntry]:
         return [item for item in self.entries if item.trading_date == trading_date]
+
+    async def exists(self, trading_date: date) -> bool:
+        if self.successful_dates is not None:
+            return trading_date in self.successful_dates
+        return any(item.trading_date == trading_date for item in self.entries)
 
     async def get(self, trading_date: date, symbol: str) -> WatchlistEntry | None:
         return next(
@@ -101,6 +111,50 @@ def test_missing_date(client: TestClient) -> None:
     use_repository(FakeRepository())
     response = client.get("/api/v1/watchlist/2026-07-28")
     assert response.status_code == 404
+
+
+def test_successful_empty_date_is_200(client: TestClient) -> None:
+    day = date(2026, 7, 28)
+    use_repository(FakeRepository(successful_dates={day}))
+    response = client.get(f"/api/v1/watchlist/{day}")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_summary_uses_primary_setup_metrics(client: TestClient) -> None:
+    value = entry()
+    value = value.model_copy(
+        update={
+            "snapshot": value.snapshot.model_copy(
+                update={
+                    "primary_setup": "volatility_contraction_breakout",
+                    "matched_setups": ["volatility_contraction_breakout"],
+                    "setup_scores": {"volatility_contraction_breakout": Decimal("88.00")},
+                    "metrics": {
+                        "latest_close": Decimal("70000"),
+                        "average_trading_value_20": Decimal("12345678901234567890.01"),
+                        "atr_pct": Decimal("0.00125"),
+                        "breakout_volume_ratio": Decimal("999"),
+                    },
+                    "setup_metrics": {
+                        "volatility_contraction_breakout": {
+                            "breakout_volume_ratio": Decimal("1.234567890123456789"),
+                            "prior_short_volume_ratio": Decimal("0.5"),
+                        }
+                    },
+                    "rule_evaluations": {"volatility_contraction_breakout:trend": True},
+                    "configuration_snapshot": {"minimum_close": "1000"},
+                }
+            )
+        }
+    )
+    use_repository(FakeRepository([value]))
+    compact = client.get("/api/v1/watchlist/latest").json()[0]
+    assert compact["breakout_volume_ratio"] == "1.234567890123456789"
+    assert compact["prior_short_volume_ratio"] == "0.5"
+    detail = client.get("/api/v1/watchlist/2026-07-28/005930").json()
+    assert detail["setup_scores"] == {"volatility_contraction_breakout": "88.00"}
+    assert detail["configuration_snapshot"] == {"minimum_close": "1000"}
 
 
 def test_get_symbol_returns_inspection_fields(client: TestClient) -> None:

@@ -57,6 +57,7 @@ export function BacktestsDashboard() {
       <nav aria-label="주요 메뉴">
         <Link href="/dashboard">대시보드</Link>
         <Link href="/watchlist">관심 종목</Link>
+        <Link href="/screener">스크리너</Link>
         <Link aria-current="page" href="/backtests">
           백테스트
         </Link>

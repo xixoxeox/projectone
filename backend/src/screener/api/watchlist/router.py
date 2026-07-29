@@ -34,7 +34,7 @@ async def by_date(
     trading_date: date, repository: WatchlistRepositoryDependency
 ) -> list[WatchlistItemResponse]:
     entries = await _repository_call(repository.list(trading_date))
-    if not entries:
+    if not entries and not await _repository_call(repository.exists(trading_date)):
         raise HTTPException(status_code=404, detail="Watchlist not found")
     return [WatchlistItemResponse.from_entry(entry) for entry in entries]
 

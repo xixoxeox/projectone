@@ -9,7 +9,7 @@ export default function Dashboard() {
             대시보드
           </Link>{" "}
           · <Link href="/watchlist">관심 종목</Link> ·{" "}
-          <Link href="/backtests">백테스트</Link>
+          <Link href="/backtests">백테스트</Link> · <Link href="/screener">스크리너</Link>
         </nav>
         <header>
           <p className="eyebrow">SWING SCREENER</p>

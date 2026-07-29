@@ -26,7 +26,7 @@ export function WatchlistDashboard() {
   }, [requestedDate, attempt]);
   useEffect(() => { void load(); }, [load]);
   const selectDate = (date: string) => { setSelectedDate(date); router.push(`/watchlist?date=${encodeURIComponent(date)}`); };
-  return <main className="watchlist-shell"><header className="watchlist-header"><p className="eyebrow">KOSPI SWING WATCHLIST</p><h1>관심 종목</h1><p>순위와 경고를 빠르게 확인하세요.</p></header>
+  return <main className="watchlist-shell"><nav aria-label="주요 메뉴"><a href="/screener">스크리너</a></nav><header className="watchlist-header"><p className="eyebrow">KOSPI SWING WATCHLIST</p><h1>관심 종목</h1><p>순위와 경고를 빠르게 확인하세요.</p></header>
     {dates.length > 0 && <WatchlistDateSelector dates={dates} selected={selectedDate} onSelect={selectDate}/>} 
     {selectedDate && <p className="as-of" aria-live="polite">기준일 <strong>{selectedDate}</strong></p>}
     {status === "loading" && <WatchlistLoading/>}{status === "ready" && <section className="watchlist-list" aria-label="순위별 관심 종목">{items.map(item => <WatchlistCard key={item.symbol} item={item} tradingDate={selectedDate}/>)}</section>}

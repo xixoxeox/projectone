@@ -5,6 +5,11 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from screener.modules.market.ranking.models import RankedCandidate
 from screener.modules.market.screening.models import ScreeningResult
+from screener.modules.market.screening.swing import (
+    SETUP_ORDER,
+    SwingScreeningConfig,
+    quantize_score,
+)
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
@@ -174,3 +179,73 @@ class CandidateRanker:
 
 
 __all__ = ["CandidateRanker"]
+
+
+class SwingCandidateRanker(CandidateRanker):
+    """Sprint 19 ranker with deterministic multi-setup tie breaking."""
+
+    def __init__(self, config: SwingScreeningConfig | None = None) -> None:
+        self.config = config or SwingScreeningConfig()
+
+    def rank(self, results: Sequence[ScreeningResult]) -> list[RankedCandidate]:
+        self._validate_request(results)
+        scored = [self._score_swing(result) for result in results]
+        scored.sort(
+            key=lambda candidate: (
+                -candidate.total_score,
+                -candidate.component_scores["setup"],
+                SETUP_ORDER.index(candidate.source_result.primary_setup or SETUP_ORDER[-1]),
+                candidate.symbol,
+            )
+        )
+        return [
+            candidate.model_copy(update={"rank": rank}) for rank, candidate in enumerate(scored, 1)
+        ]
+
+    def _score_swing(self, result: ScreeningResult) -> RankedCandidate:
+        metrics = result.metrics
+        sma20, sma60 = metrics.get("sma20", ZERO), metrics.get("sma60", ZERO)
+        trend = self._linear_score(
+            (sma20 - sma60) / sma60 if sma60 > ZERO else ZERO, ZERO, Decimal(".20")
+        )
+        setup = max(
+            (result.setup_scores[name] for name in result.matched_setups),
+            default=ZERO,
+        )
+        value = metrics.get("average_trading_value_20", ZERO)
+        threshold = self.config.minimum_average_trading_value_20
+        liquidity = self._linear_score(
+            value / threshold if threshold > ZERO else ZERO, Decimal("1"), Decimal("5")
+        )
+        atr = metrics.get("atr_pct", ZERO)
+        if atr <= Decimal(".01") or atr >= Decimal(".12"):
+            volatility = ZERO
+        elif atr < Decimal(".03"):
+            volatility = self._linear_score(atr, Decimal(".01"), Decimal(".03"))
+        elif atr <= Decimal(".06"):
+            volatility = HUNDRED
+        else:
+            volatility = quantize_score((Decimal(".12") - atr) / Decimal(".06") * HUNDRED)
+        components = {
+            "trend": trend,
+            "setup": setup,
+            "liquidity": liquidity,
+            "volatility": volatility,
+        }
+        total = quantize_score(
+            trend * Decimal(".25")
+            + setup * Decimal(".45")
+            + liquidity * Decimal(".15")
+            + volatility * Decimal(".15")
+        )
+        return RankedCandidate(
+            symbol=result.symbol,
+            rank=1,
+            total_score=total,
+            component_scores=components,
+            source_result=result,
+            warnings=result.warnings,
+        )
+
+
+__all__.append("SwingCandidateRanker")
