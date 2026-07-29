@@ -1,10 +1,12 @@
 """Deterministic persisted-market-data backtesting."""
 
 from screener.modules.backtest.domain import (
+    BacktestExecutionMode,
     BacktestExitReason,
     BacktestRun,
     BacktestStatus,
     BacktestTrade,
+    PortfolioSnapshot,
 )
 from screener.modules.backtest.executor import (
     BacktestExecutionResult,
@@ -25,6 +27,7 @@ from screener.modules.backtest.strategy import (
 
 __all__ = [
     "BacktestExecutionResult",
+    "BacktestExecutionMode",
     "BacktestExecutor",
     "BacktestExitReason",
     "BacktestParameters",
@@ -36,6 +39,7 @@ __all__ = [
     "BacktestStatus",
     "BacktestStrategy",
     "BacktestTrade",
+    "PortfolioSnapshot",
     "DatabaseBacktestExecutor",
     "UnsupportedBacktestStrategy",
     "validate_strategy_contract",

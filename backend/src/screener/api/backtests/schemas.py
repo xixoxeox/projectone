@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from screener.modules.backtest import BacktestStatus
 from screener.modules.backtest.domain import BacktestExitReason
@@ -17,12 +17,31 @@ class BacktestCreateRequest(BaseModel):
     start_date: date
     end_date: date
     data_as_of: datetime | None = None
+    execution_mode: Literal["independent", "portfolio"] = "independent"
 
     @field_validator("parameters")
     @classmethod
     def validate_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
-        BacktestParameters.parse(value)
         return value
+
+    @model_validator(mode="after")
+    def validate_mode_parameters(self) -> "BacktestCreateRequest":
+        values = {**self.parameters, "execution_mode": self.execution_mode}
+        if self.execution_mode == "portfolio":
+            from screener.modules.backtest.portfolio import PortfolioParameters
+
+            PortfolioParameters.parse(values)
+        else:
+            incompatible = {
+                "max_open_positions",
+                "position_sizing_mode",
+                "position_size_pct",
+                "minimum_cash_buffer_pct",
+            } & values.keys()
+            if incompatible:
+                raise ValueError("portfolio parameters are incompatible with independent mode")
+            BacktestParameters.parse(values)
+        return self
 
     @field_validator("data_as_of")
     @classmethod
@@ -49,6 +68,37 @@ class BacktestResponse(BaseModel):
     result: dict[str, Any] | None
     failure_code: str | None
     failure_message: str | None
+    execution_mode: Literal["independent", "portfolio"]
+
+
+class PortfolioSnapshotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    trading_date: date
+    cash: Decimal
+    market_value: Decimal
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal
+    total_equity: Decimal
+    cumulative_return: Decimal
+    running_peak_equity: Decimal
+    drawdown: Decimal
+    drawdown_pct: Decimal
+    open_position_count: int
+
+
+class PortfolioResponse(BaseModel):
+    run_id: UUID
+    execution_mode: Literal["portfolio"] = "portfolio"
+    initial_capital: Decimal
+    final_equity: Decimal
+    final_cash: Decimal
+    net_profit: Decimal
+    total_return: Decimal
+    max_drawdown: Decimal
+    max_drawdown_pct: Decimal
+    maximum_open_positions_used: int
+    average_capital_utilization: Decimal
+    snapshots: list[PortfolioSnapshotResponse]
 
 
 class BacktestTradeResponse(BaseModel):

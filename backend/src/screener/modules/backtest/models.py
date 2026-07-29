@@ -86,3 +86,28 @@ class BacktestTradeRecord(Base):
     net_pnl: Mapped[Decimal] = mapped_column(Numeric(24, 8))
     holding_days: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PortfolioSnapshotRecord(Base):
+    __tablename__ = "backtest_portfolio_snapshots"
+    __table_args__ = (
+        UniqueConstraint("run_id", "trading_date", name="uq_portfolio_snapshot_run_date"),
+        CheckConstraint("open_position_count >= 0", name="nonnegative_open_positions"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("backtest_runs.id", ondelete="CASCADE"), index=True
+    )
+    trading_date: Mapped[date] = mapped_column(Date, index=True)
+    cash: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    market_value: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    unrealized_pnl: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    total_equity: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    cumulative_return: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    running_peak_equity: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    drawdown: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    drawdown_pct: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    open_position_count: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

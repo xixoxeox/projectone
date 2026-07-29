@@ -41,6 +41,7 @@ export function BacktestRunList({
                   "비교",
                   "생성",
                   "전략",
+                  "실행 모드",
                   "기간",
                   "상태",
                   "진입",
@@ -79,6 +80,7 @@ export function BacktestRunList({
                   <td>
                     {run.strategy_name} {run.strategy_version ?? "—"}
                   </td>
+                  <td>{run.execution_mode === "portfolio" ? "포트폴리오" : "독립 거래"}</td>
                   <td>
                     {run.start_date} – {run.end_date}
                   </td>

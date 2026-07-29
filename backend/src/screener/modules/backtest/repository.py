@@ -9,8 +9,13 @@ from screener.modules.backtest.domain import (
     BacktestRun,
     BacktestStatus,
     BacktestTrade,
+    PortfolioSnapshot,
 )
-from screener.modules.backtest.models import BacktestRunRecord, BacktestTradeRecord
+from screener.modules.backtest.models import (
+    BacktestRunRecord,
+    BacktestTradeRecord,
+    PortfolioSnapshotRecord,
+)
 
 
 class BacktestRepository:
@@ -121,6 +126,32 @@ class BacktestRepository:
                 net_pnl=r.net_pnl,
                 holding_days=r.holding_days,
                 created_at=r.created_at,
+            )
+            for r in records
+        ]
+
+    async def list_portfolio_snapshots(self, run_id: UUID) -> builtins.list[PortfolioSnapshot]:
+        records = await self.session.scalars(
+            select(PortfolioSnapshotRecord)
+            .where(PortfolioSnapshotRecord.run_id == run_id)
+            .order_by(PortfolioSnapshotRecord.trading_date)
+        )
+        return [
+            PortfolioSnapshot(
+                r.id,
+                r.run_id,
+                r.trading_date,
+                r.cash,
+                r.market_value,
+                r.realized_pnl,
+                r.unrealized_pnl,
+                r.total_equity,
+                r.cumulative_return,
+                r.running_peak_equity,
+                r.drawdown,
+                r.drawdown_pct,
+                r.open_position_count,
+                r.created_at,
             )
             for r in records
         ]

@@ -332,3 +332,148 @@ async def test_real_nested_flush_failure_persists_failed_run_and_keeps_session_u
     assert "uq_backtest_trade_signal" in restored.failure_message
     assert await session.scalar(select(func.count()).select_from(BacktestTradeRecord)) == 0
     assert await session.scalar(select(func.count()).select_from(BacktestRunRecord)) == 1
+
+
+class StaticStrategy:
+    name = "watchlist_entry"
+    version = "1"
+
+    def __init__(self, signals: list[BacktestSignal]) -> None:
+        self.signals = signals
+
+    async def generate_signals(self, run: BacktestRun) -> list[BacktestSignal]:
+        return self.signals
+
+
+def portfolio_run(start: date, end: date) -> BacktestRun:
+    return BacktestRun.create(
+        "watchlist_entry",
+        start,
+        end,
+        "1",
+        {
+            "execution_mode": "portfolio",
+            "initial_capital": "10000",
+            "max_open_positions": 3,
+            "position_sizing_mode": "fixed_fraction",
+            "position_size_pct": "0.25",
+            "minimum_cash_buffer_pct": "0",
+            "commission_rate": "0",
+            "sell_tax_rate": "0",
+            "slippage_rate": "0",
+            "stop_loss_pct": "0.9",
+            "take_profit_pct": "9",
+            "max_holding_days": 20,
+        },
+    )
+
+
+async def seed_bars(
+    session: AsyncSession, symbols: list[str], rows: list[tuple[date, str, str]]
+) -> None:
+    for symbol in symbols:
+        session.add(
+            Stock(
+                symbol=symbol,
+                name=symbol,
+                market="KOSPI",
+                exchange="XKRX",
+                currency="KRW",
+                country="KR",
+                security_type="common_stock",
+                listing_status="listed",
+                is_active=True,
+            )
+        )
+
+    # Parent rows must exist before daily_bars FK rows are inserted.
+    await session.flush()
+
+    for symbol in symbols:
+        for day, opening, close in rows:
+            opening_value = Decimal(opening)
+            close_value = Decimal(close)
+            session.add(
+                DailyBarRecord(
+                    symbol=symbol,
+                    trading_date=day,
+                    open=opening_value,
+                    high=max(opening_value, close_value),
+                    low=min(opening_value, close_value),
+                    close=close_value,
+                    volume=100,
+                    source="test_fixture",
+                )
+            )
+    await session.flush()
+
+
+async def test_zero_signal_portfolio_persists_canonical_all_cash_calendar(
+    session: AsyncSession,
+) -> None:
+    days = [(date(2026, 1, 2), "10", "11"), (date(2026, 1, 5), "11", "12")]
+    await seed_bars(session, ["CAL"], days)
+    candidate = portfolio_run(days[0][0], days[-1][0]).start()
+    repository = BacktestRepository(session)
+    await repository.save(candidate)
+    result = await DatabaseBacktestExecutor(session, StaticStrategy([])).execute(candidate)
+    completed = candidate.complete(result.metrics)
+    await repository.save(completed)
+    await session.commit()
+    snapshots = await repository.list_portfolio_snapshots(candidate.id)
+    assert [item.trading_date for item in snapshots] == [row[0] for row in days]
+    for item in snapshots:
+        assert (
+            item.cash,
+            item.market_value,
+            item.realized_pnl,
+            item.unrealized_pnl,
+            item.total_equity,
+        ) == (
+            Decimal("10000.00000000"),
+            Decimal("0E-8"),
+            Decimal("0E-8"),
+            Decimal("0E-8"),
+            Decimal("10000.00000000"),
+        )
+        assert item.cumulative_return == item.drawdown == item.drawdown_pct == Decimal("0E-8")
+        assert item.open_position_count == 0
+
+
+async def test_no_close_lookahead_and_final_day_signal_is_traded(session: AsyncSession) -> None:
+    days = [
+        (date(2026, 1, 2), "10", "10"),
+        (date(2026, 1, 5), "10", "10"),
+        (date(2026, 1, 6), "10", "99"),
+        (date(2026, 1, 7), "10", "10"),
+    ]
+    await seed_bars(session, ["AAA", "BBB"], days)
+    signals = [
+        BacktestSignal("AAA", date(2026, 1, 2)),
+        BacktestSignal("BBB", date(2026, 1, 5)),
+        BacktestSignal("AAA", date(2026, 1, 6)),
+    ]
+    candidate = portfolio_run(days[0][0], days[-1][0]).start()
+    repository = BacktestRepository(session)
+    await repository.save(candidate)
+    result = await DatabaseBacktestExecutor(session, StaticStrategy(signals)).execute(candidate)
+    trades = await repository.list_trades(candidate.id, 100, 0)
+    bbb = next(item for item in trades if item.symbol == "BBB")
+    assert bbb.quantity == 250  # prior-close equity 10,000 × 25% / 10, not AAA's future close
+    original_aaa = next(
+        item for item in trades if item.symbol == "AAA" and item.entry_date == date(2026, 1, 5)
+    )
+    assert original_aaa.exit_date == date(2026, 1, 7)
+    assert original_aaa.exit_reason is BacktestExitReason.END_OF_PERIOD
+    assert any(
+        item.signal_date == date(2026, 1, 6)
+        and item.exit_reason is BacktestExitReason.END_OF_PERIOD
+        for item in trades
+    )
+    assert (
+        result.metrics["total_signals"]
+        == result.metrics["entered_trades"] + result.metrics["skipped_signals"]
+    )
+    final = (await repository.list_portfolio_snapshots(candidate.id))[-1]
+    assert final.total_equity == Decimal(result.metrics["final_cash"])
+    assert final.unrealized_pnl == Decimal("0E-8") and final.open_position_count == 0
