@@ -12,7 +12,7 @@ contract version: **1.2.5**. Server: `https://openapi.tossinvest.com`.
 
 Toss does **not** enumerate the entire KOSPI market. The application loads the
 reviewed, version-controlled KRX common-share snapshot at
-`backend/data/kospi_common_stock_symbols.csv`, enriches its symbols through Toss
+the packaged `screener.data/kospi_common_stock_symbols.csv` resource, enriches its symbols through Toss
 `/api/v1/stocks` in batches of at most 200, and obtains adjusted daily candles from
 Toss.
 
@@ -24,6 +24,14 @@ Data Marketplace, retain active ordinary shares only, replace the CSV's single
 cd backend
 python scripts/validate_kospi_universe.py data/kospi_common_stock_symbols.csv
 ```
+
+The 2026-07-30 snapshot contains 807 symbols. It was derived from 848 KOSPI
+source rows (833 unique symbols and 15 duplicate rows) and preserves six-character
+uppercase alphanumeric codes. Deterministic exclusions removed 23 REIT/real-estate
+investment companies, two infrastructure funds, and one fund-like product.
+Regenerate it with `python scripts/regenerate_kospi_universe.py
+data/krx_listed_companies_source.csv`; provenance and SHA-256 values are emitted
+beside the packaged CSV.
 
 Chart calls are deliberately throttled for `MARKET_DATA_CHART`. A first three-year
 full-universe sync requires multiple backward pages per symbol and will take much
@@ -54,7 +62,9 @@ The error envelope's safe code plus request ID may cross the adapter, never its 
 payload, credentials, bearer token, or headers.
 
 Stock metadata is retained only where the official response supplies it: market,
-country, currency, security type, listing status, and exchange. Later universe work
+country, currency, security type, listing status, and exchange. Official
+`KOSPI`/`STOCK`/common-share/`ACTIVE` records are normalized at the adapter boundary
+to `common_stock` and `listed`. Later universe work
 may exclude ETFs, ETNs, preferred shares, SPACs, or non-listed securities only when
 these classification values are present. Names and symbol patterns are not used to
 infer eligibility. Warning types are passed through as documented states, not inferred.
