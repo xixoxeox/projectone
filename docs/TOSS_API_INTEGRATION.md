@@ -6,11 +6,28 @@ Implementation was reviewed against the official [human documentation](https://d
 [AI-readable guide](https://developers.tossinvest.com/llms.txt), and canonical
 [OpenAPI JSON](https://openapi.tossinvest.com/openapi-docs/latest/openapi.json).
 The hosted OpenAPI document remains authoritative and is not vendored. Adapter
-contract version: **1.2.4**. Server: `https://openapi.tossinvest.com`.
+contract version: **1.2.5**. Server: `https://openapi.tossinvest.com`.
 
-The implementation environment's outbound proxy rejected the official hosts, so a
-maintainer must re-run contract conformance review against the hosted JSON before a
-production release if 1.2.4 is no longer `info.version`.
+## KOSPI universe and maintenance
+
+Toss does **not** enumerate the entire KOSPI market. The application loads the
+reviewed, version-controlled KRX common-share snapshot at
+`backend/data/kospi_common_stock_symbols.csv`, enriches its symbols through Toss
+`/api/v1/stocks` in batches of at most 200, and obtains adjusted daily candles from
+Toss.
+
+To update the universe, export the listed-corporation report from the official KRX
+Data Marketplace, retain active ordinary shares only, replace the CSV's single
+`symbol` column, update `backend/data/README.md`, and run:
+
+```bash
+cd backend
+python scripts/validate_kospi_universe.py data/kospi_common_stock_symbols.csv
+```
+
+Chart calls are deliberately throttled for `MARKET_DATA_CHART`. A first three-year
+full-universe sync requires multiple backward pages per symbol and will take much
+longer than an incremental sync; do not start concurrent sync jobs while it runs.
 
 ## Read-only mappings
 
@@ -20,7 +37,7 @@ production release if 1.2.4 is no longer `info.version`.
 | `GET /api/v1/candles` | chronological `DailyBar` values |
 | `GET /api/v1/prices` | `QuoteSnapshot` values |
 | `GET /api/v1/stocks` | `InstrumentSnapshot` metadata |
-| `GET /api/v1/stocks/{symbol}/warnings` | `StockWarning` states |
+| `GET /api/v1/stock-warnings` | `StockWarning` states |
 
 OAuth uses a form-encoded `client_credentials` request. There is no refresh token.
 Issuing a token invalidates the prior token, so all application requests share one

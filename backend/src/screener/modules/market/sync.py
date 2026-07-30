@@ -135,12 +135,7 @@ class DailyBarSyncService(_Runner):
                 )
                 if start > end:
                     continue
-                bars = []
-                chunk_start = start
-                while chunk_start <= end:
-                    chunk_end = min(chunk_start + timedelta(days=499), end)
-                    bars.extend(await self.provider.daily_bars(symbol, chunk_start, chunk_end))
-                    chunk_start = chunk_end + timedelta(days=1)
+                bars = await self.provider.daily_bars(symbol, start, end)
                 if any(x.trading_date > end for x in bars):
                     raise ValueError("future trading date")
                 value = await DailyBarRepository(session).upsert(bars)
