@@ -1,0 +1,17 @@
+processing_date=2026-07-30
+source_file=상장법인목록.xls
+source_file_sha256=a4b0313b9b71da15319830073534a2d1fa3d2abd99df8977643d43d383b1365d
+source_csv=krx_listed_companies_source.csv
+source_csv_sha256=3c4f6a922c51c3405af63ec1571b6cc787c14f981089abf021e1f3e06a9827ef
+source_rows=848
+kospi_rows=848
+unique_symbols=833
+duplicate_symbol_rows=15
+alphanumeric_symbols=3
+malformed_symbols=0
+excluded_collective_investment_or_fund_like=1
+excluded_infrastructure_fund=2
+excluded_reit_or_real_estate_investment_company=23
+final_symbol_count=807
+final_csv_sha256=ff6051b921736aed59d3ac80706c8408acbf8d94879cd7b5b316d2948e689406
+rules=KOSPI rows; uppercase ^[0-9A-Z]{6}$; deduplicate with name/market conflict failure; deterministic prioritized product exclusions; lexical symbol order

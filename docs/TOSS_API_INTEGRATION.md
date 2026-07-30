@@ -6,11 +6,36 @@ Implementation was reviewed against the official [human documentation](https://d
 [AI-readable guide](https://developers.tossinvest.com/llms.txt), and canonical
 [OpenAPI JSON](https://openapi.tossinvest.com/openapi-docs/latest/openapi.json).
 The hosted OpenAPI document remains authoritative and is not vendored. Adapter
-contract version: **1.2.4**. Server: `https://openapi.tossinvest.com`.
+contract version: **1.2.5**. Server: `https://openapi.tossinvest.com`.
 
-The implementation environment's outbound proxy rejected the official hosts, so a
-maintainer must re-run contract conformance review against the hosted JSON before a
-production release if 1.2.4 is no longer `info.version`.
+## KOSPI universe and maintenance
+
+Toss does **not** enumerate the entire KOSPI market. The application loads the
+reviewed, version-controlled KRX common-share snapshot at
+the packaged `screener.data/kospi_common_stock_symbols.csv` resource, enriches its symbols through Toss
+`/api/v1/stocks` in batches of at most 200, and obtains adjusted daily candles from
+Toss.
+
+To update the universe, export the listed-corporation report from the official KRX
+Data Marketplace, retain active ordinary shares only, replace the CSV's single
+`symbol` column, update `backend/data/README.md`, and run:
+
+```bash
+cd backend
+python scripts/validate_kospi_universe.py data/kospi_common_stock_symbols.csv
+```
+
+The 2026-07-30 snapshot contains 807 symbols. It was derived from 848 KOSPI
+source rows (833 unique symbols and 15 duplicate rows) and preserves six-character
+uppercase alphanumeric codes. Deterministic exclusions removed 23 REIT/real-estate
+investment companies, two infrastructure funds, and one fund-like product.
+Regenerate it with `python scripts/regenerate_kospi_universe.py
+data/krx_listed_companies_source.csv`; provenance and SHA-256 values are emitted
+beside the packaged CSV.
+
+Chart calls are deliberately throttled for `MARKET_DATA_CHART`. A first three-year
+full-universe sync requires multiple backward pages per symbol and will take much
+longer than an incremental sync; do not start concurrent sync jobs while it runs.
 
 ## Read-only mappings
 
@@ -20,7 +45,7 @@ production release if 1.2.4 is no longer `info.version`.
 | `GET /api/v1/candles` | chronological `DailyBar` values |
 | `GET /api/v1/prices` | `QuoteSnapshot` values |
 | `GET /api/v1/stocks` | `InstrumentSnapshot` metadata |
-| `GET /api/v1/stocks/{symbol}/warnings` | `StockWarning` states |
+| `GET /api/v1/stock-warnings` | `StockWarning` states |
 
 OAuth uses a form-encoded `client_credentials` request. There is no refresh token.
 Issuing a token invalidates the prior token, so all application requests share one
@@ -37,7 +62,9 @@ The error envelope's safe code plus request ID may cross the adapter, never its 
 payload, credentials, bearer token, or headers.
 
 Stock metadata is retained only where the official response supplies it: market,
-country, currency, security type, listing status, and exchange. Later universe work
+country, currency, security type, listing status, and exchange. Official
+`KOSPI`/`STOCK`/common-share/`ACTIVE` records are normalized at the adapter boundary
+to `common_stock` and `listed`. Later universe work
 may exclude ETFs, ETNs, preferred shares, SPACs, or non-listed securities only when
 these classification values are present. Names and symbol patterns are not used to
 infer eligibility. Warning types are passed through as documented states, not inferred.

@@ -4,10 +4,12 @@ from decimal import Decimal
 
 import httpx
 import pytest
+from pytest import MonkeyPatch
 
 from screener.modules.market.domain import (
     ProviderAuthenticationError,
     ProviderMalformedResponseError,
+    ProviderValidationError,
 )
 from screener.modules.market.infrastructure.toss import (
     IssuedToken,
@@ -16,6 +18,12 @@ from screener.modules.market.infrastructure.toss import (
     _retry_after,
     issue_token,
 )
+
+
+def test_official_active_common_stock_classification_is_normalized() -> None:
+    instrument = TossMarketDataProvider._instrument(stock("005930"), datetime.now(UTC))
+    assert instrument.security_type == "common_stock"
+    assert instrument.listing_status == "listed"
 
 
 @pytest.mark.asyncio
@@ -94,27 +102,22 @@ async def test_candles_map_sort_decimal_and_request_contract() -> None:
         assert request.url.path == "/api/v1/candles"
         assert request.url.params["symbol"] == "005930"
         assert request.url.params["interval"] == "1d"
+        assert request.url.params["count"] == "200"
+        assert request.url.params["adjusted"] == "true"
+        before = datetime.fromisoformat(request.url.params["before"])
+        assert before.tzinfo is not None
+        assert before.date() == date(2026, 1, 3)
+        assert "T" in request.url.params["before"]
         return httpx.Response(
             200,
             json={
-                "candles": [
-                    {
-                        "timestamp": "2026-01-03T00:00:00+09:00",
-                        "open": "2",
-                        "high": "3",
-                        "low": "1",
-                        "close": "2.5",
-                        "volume": 20,
-                    },
-                    {
-                        "timestamp": "2026-01-02T00:00:00+09:00",
-                        "open": "1",
-                        "high": "2",
-                        "low": "1",
-                        "close": "2",
-                        "volume": 10,
-                    },
-                ]
+                "result": {
+                    "candles": [
+                        candle("2026-01-03T00:00:00+09:00", "2", "3", "1", "2.5", "20"),
+                        candle("2026-01-02T00:00:00+09:00", "1", "2", "1", "2", "10"),
+                    ],
+                    "nextBefore": None,
+                }
             },
         )
 
@@ -128,6 +131,143 @@ async def test_candles_map_sort_decimal_and_request_contract() -> None:
     assert bars[0].as_of.utcoffset() is not None
 
 
+@pytest.mark.asyncio
+async def test_candle_pages_deduplicate_inclusive_boundary_and_reject_cursor_loop() -> None:
+    calls = 0
+    before_values: list[str] = []
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        before_values.append(request.url.params["before"])
+        if calls == 1:
+            rows = [candle("2026-01-03T00:00:00+09:00"), candle("2026-01-02T00:00:00+09:00")]
+            cursor = "2026-01-02T00:00:00+09:00"
+        else:
+            rows = [candle("2026-01-02T00:00:00+09:00"), candle("2026-01-01T00:00:00+09:00")]
+            cursor = None
+        return httpx.Response(200, json={"result": {"candles": rows, "nextBefore": cursor}})
+
+    async with httpx.AsyncClient(
+        base_url="https://mock", transport=httpx.MockTransport(transport)
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        bars = await provider.daily_bars("005930", date(2026, 1, 1), date(2026, 1, 3))
+    assert calls == 2
+    assert before_values[1] == "2026-01-02T00:00:00+09:00"
+    assert [bar.trading_date for bar in bars] == [
+        date(2026, 1, 1),
+        date(2026, 1, 2),
+        date(2026, 1, 3),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chart_requests_respect_configured_interval(monkeypatch: MonkeyPatch) -> None:
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("screener.modules.market.infrastructure.toss.asyncio.sleep", fake_sleep)
+    async with httpx.AsyncClient(
+        base_url="https://mock",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"result": []})),
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        await provider._request("/chart", {}, chart=True)
+        await provider._request("/chart", {}, chart=True)
+    assert sleeps
+    assert sleeps[-1] >= provider._spec.CHART_REQUEST_INTERVAL_SECONDS - 0.01
+    assert provider._spec.CHART_REQUEST_INTERVAL_SECONDS >= 0.2
+
+
+@pytest.mark.asyncio
+async def test_warning_request_uses_official_symbol_path_without_query() -> None:
+    def transport(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/stocks/005930/warnings"
+        assert not request.url.params
+        return httpx.Response(200, json={"result": []})
+
+    async with httpx.AsyncClient(
+        base_url="https://mock", transport=httpx.MockTransport(transport)
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        assert await provider.warnings("005930") == []
+
+
+@pytest.mark.asyncio
+async def test_nested_common_and_flat_oauth_errors_preserve_diagnostics() -> None:
+    async with httpx.AsyncClient(
+        base_url="https://mock",
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "requestId": "request-1",
+                        "code": "INVALID_SYMBOL",
+                        "message": "bad symbol",
+                    }
+                },
+            )
+        ),
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        with pytest.raises(ProviderValidationError) as caught:
+            await provider.instrument("005930")
+    assert (caught.value.provider_code, caught.value.request_id, caught.value.provider_message) == (
+        "INVALID_SYMBOL",
+        "request-1",
+        "bad symbol",
+    )
+
+    async with httpx.AsyncClient(
+        base_url="https://mock",
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                401, json={"error": "invalid_client", "error_description": "credentials rejected"}
+            )
+        ),
+    ) as client:
+        with pytest.raises(ProviderAuthenticationError) as oauth:
+            await issue_token(client, "id", "secret")
+    assert oauth.value.provider_code == "invalid_client"
+    assert oauth.value.provider_message == "credentials rejected"
+
+
+@pytest.mark.asyncio
+async def test_stock_master_batches_200_and_maps_and_filters_official_fields(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    symbols = [f"{value:06d}" for value in range(201)]
+    monkeypatch.setattr(
+        "screener.modules.market.infrastructure.toss.load_kospi_symbols", lambda: symbols
+    )
+    batch_sizes: list[int] = []
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        requested = request.url.params["symbols"].split(",")
+        batch_sizes.append(len(requested))
+        assert set(request.url.params) == {"symbols"}
+        rows = [stock(symbol) for symbol in requested]
+        if "000200" in requested:
+            rows[-1]["isCommonShare"] = False
+        return httpx.Response(200, json={"result": rows})
+
+    async with httpx.AsyncClient(
+        base_url="https://mock", transport=httpx.MockTransport(transport)
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        stocks = await provider.stock_master()
+    assert batch_sizes == [200, 1]
+    assert len(stocks) == 200
+    assert stocks[0].security_type == "common_stock"
+    assert stocks[0].listing_status == "listed"
+    assert stocks[0].list_date == date(1975, 6, 11)
+    assert stocks[0].korean_market_detail == "KOSPI"
+
+
 def test_retry_after_malformed_is_safe() -> None:
     assert _retry_after("not-a-date") == 0.1
     assert 0 <= _retry_after(email_date(datetime.now(UTC))) <= 30
@@ -135,3 +275,41 @@ def test_retry_after_malformed_is_safe() -> None:
 
 def email_date(value: datetime) -> str:
     return value.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+
+async def issuer(_client: httpx.AsyncClient, _id: str, _secret: str) -> IssuedToken:
+    return IssuedToken(access_token="token", token_type="Bearer", expires_in=3600)
+
+
+def candle(
+    timestamp: str,
+    open_price: str = "1",
+    high: str = "2",
+    low: str = "1",
+    close: str = "2",
+    volume: str = "10",
+) -> dict[str, str]:
+    return {
+        "timestamp": timestamp,
+        "openPrice": open_price,
+        "highPrice": high,
+        "lowPrice": low,
+        "closePrice": close,
+        "volume": volume,
+        "currency": "KRW",
+    }
+
+
+def stock(symbol: str) -> dict[str, object]:
+    return {
+        "symbol": symbol,
+        "name": f"stock-{symbol}",
+        "market": "KOSPI",
+        "currency": "KRW",
+        "securityType": "STOCK",
+        "isCommonShare": True,
+        "status": "ACTIVE",
+        "listDate": "1975-06-11",
+        "delistDate": None,
+        "koreanMarketDetail": "KOSPI",
+    }

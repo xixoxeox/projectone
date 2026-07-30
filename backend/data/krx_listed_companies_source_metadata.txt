@@ -1,0 +1,12 @@
+source_file=상장법인목록.xls
+source_format=HTML table saved with .xls extension
+detected_encoding=cp949
+source_sha256=a4b0313b9b71da15319830073534a2d1fa3d2abd99df8977643d43d383b1365d
+csv_sha256=3c4f6a922c51c3405af63ec1571b6cc787c14f981089abf021e1f3e06a9827ef
+parsed_data_rows=848
+kospi_rows=848
+unique_kospi_symbols=833
+duplicate_symbol_rows=15
+alphanumeric_symbols=3
+malformed_symbols=0
+processing_note=No product-type exclusions were applied. This is a normalized source export for Codex processing.

@@ -33,6 +33,11 @@ class InstrumentSnapshot(BaseModel):
     security_type: str | None = None
     listing_status: str | None = None
     exchange: str | None = None
+    is_common_share: bool | None = None
+    status: str | None = None
+    list_date: date | None = None
+    delist_date: date | None = None
+    korean_market_detail: str | None = None
     source: str
     as_of: datetime
 
@@ -71,6 +76,9 @@ class StockWarning(BaseModel):
     warning_type: str
     active: bool
     description: str | None = None
+    exchange: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     source: str
     as_of: datetime
 
@@ -87,6 +95,7 @@ class ProviderError(Exception):
         provider_code: str | None = None,
         request_id: str | None = None,
         retry_after: float | None = None,
+        provider_message: str | None = None,
     ) -> None:
         super().__init__(message)
         self.provider = provider
@@ -94,6 +103,7 @@ class ProviderError(Exception):
         self.provider_code = provider_code
         self.request_id = request_id
         self.retry_after = retry_after
+        self.provider_message = provider_message
 
 
 class ProviderAuthenticationError(ProviderError):
