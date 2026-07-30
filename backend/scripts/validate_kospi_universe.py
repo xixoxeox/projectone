@@ -1,7 +1,10 @@
 """Validate a reviewed KRX universe snapshot before committing it."""
 
 import argparse
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from screener.modules.market.infrastructure.universe import load_kospi_symbols
 

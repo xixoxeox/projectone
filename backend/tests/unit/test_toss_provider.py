@@ -20,6 +20,12 @@ from screener.modules.market.infrastructure.toss import (
 )
 
 
+def test_official_active_common_stock_classification_is_normalized() -> None:
+    instrument = TossMarketDataProvider._instrument(stock("005930"), datetime.now(UTC))
+    assert instrument.security_type == "common_stock"
+    assert instrument.listing_status == "listed"
+
+
 @pytest.mark.asyncio
 async def test_oauth_form_validation_and_cache() -> None:
     calls = 0
@@ -215,6 +221,8 @@ async def test_stock_master_batches_200_and_maps_and_filters_official_fields(
         stocks = await provider.stock_master()
     assert batch_sizes == [200, 1]
     assert len(stocks) == 200
+    assert stocks[0].security_type == "common_stock"
+    assert stocks[0].listing_status == "listed"
     assert stocks[0].list_date == date(1975, 6, 11)
     assert stocks[0].korean_market_detail == "KOSPI"
 

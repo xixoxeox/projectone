@@ -222,9 +222,9 @@ class TossMarketDataProvider:
             for item in result
             if item.symbol in requested
             and item.market == "KOSPI"
-            and item.security_type == "STOCK"
+            and item.security_type == "common_stock"
             and item.is_common_share is True
-            and item.status == "ACTIVE"
+            and item.listing_status == "listed"
         ]
 
     async def daily_bars(self, symbol: str, start: date, end: date) -> list[DailyBar]:
@@ -407,13 +407,21 @@ class TossMarketDataProvider:
     @staticmethod
     def _instrument(row: dict[str, Any], as_of: datetime) -> InstrumentSnapshot:
         detail = row.get("koreanMarketDetail")
+        is_active_common_stock = (
+            row.get("market") == "KOSPI"
+            and row.get("securityType") == "STOCK"
+            and row.get("isCommonShare") is True
+            and row.get("status") == "ACTIVE"
+        )
         return InstrumentSnapshot(
             symbol=str(row["symbol"]),
             name=str(row["name"]),
             market=str(row["market"]),
             currency=str(row["currency"]),
-            security_type=_optional(row, "securityType"),
-            listing_status=_optional(row, "status"),
+            security_type=(
+                "common_stock" if is_active_common_stock else _optional(row, "securityType")
+            ),
+            listing_status="listed" if is_active_common_stock else _optional(row, "status"),
             status=_optional(row, "status"),
             is_common_share=_optional_bool(row, "isCommonShare"),
             list_date=_optional_date(row, "listDate"),
