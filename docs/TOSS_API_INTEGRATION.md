@@ -25,10 +25,10 @@ cd backend
 python scripts/validate_kospi_universe.py data/kospi_common_stock_symbols.csv
 ```
 
-The 2026-07-30 snapshot contains 806 symbols. It was derived from 848 KOSPI
+The 2026-07-30 snapshot contains 807 symbols. It was derived from 848 KOSPI
 source rows (833 unique symbols and 15 duplicate rows) and preserves six-character
 uppercase alphanumeric codes. Deterministic exclusions removed 23 REIT/real-estate
-investment companies, two infrastructure funds, and two fund-like products.
+investment companies, two infrastructure funds, and one fund-like product.
 Regenerate it with `python scripts/regenerate_kospi_universe.py
 data/krx_listed_companies_source.csv`; provenance and SHA-256 values are emitted
 beside the packaged CSV.

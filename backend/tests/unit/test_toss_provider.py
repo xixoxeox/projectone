@@ -104,6 +104,10 @@ async def test_candles_map_sort_decimal_and_request_contract() -> None:
         assert request.url.params["interval"] == "1d"
         assert request.url.params["count"] == "200"
         assert request.url.params["adjusted"] == "true"
+        before = datetime.fromisoformat(request.url.params["before"])
+        assert before.tzinfo is not None
+        assert before.date() == date(2026, 1, 3)
+        assert "T" in request.url.params["before"]
         return httpx.Response(
             200,
             json={
@@ -130,10 +134,12 @@ async def test_candles_map_sort_decimal_and_request_contract() -> None:
 @pytest.mark.asyncio
 async def test_candle_pages_deduplicate_inclusive_boundary_and_reject_cursor_loop() -> None:
     calls = 0
+    before_values: list[str] = []
 
-    def transport(_request: httpx.Request) -> httpx.Response:
+    def transport(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
+        before_values.append(request.url.params["before"])
         if calls == 1:
             rows = [candle("2026-01-03T00:00:00+09:00"), candle("2026-01-02T00:00:00+09:00")]
             cursor = "2026-01-02T00:00:00+09:00"
@@ -148,11 +154,46 @@ async def test_candle_pages_deduplicate_inclusive_boundary_and_reject_cursor_loo
         provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
         bars = await provider.daily_bars("005930", date(2026, 1, 1), date(2026, 1, 3))
     assert calls == 2
+    assert before_values[1] == "2026-01-02T00:00:00+09:00"
     assert [bar.trading_date for bar in bars] == [
         date(2026, 1, 1),
         date(2026, 1, 2),
         date(2026, 1, 3),
     ]
+
+
+@pytest.mark.asyncio
+async def test_chart_requests_respect_configured_interval(monkeypatch: MonkeyPatch) -> None:
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("screener.modules.market.infrastructure.toss.asyncio.sleep", fake_sleep)
+    async with httpx.AsyncClient(
+        base_url="https://mock",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"result": []})),
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        await provider._request("/chart", {}, chart=True)
+        await provider._request("/chart", {}, chart=True)
+    assert sleeps
+    assert sleeps[-1] >= provider._spec.CHART_REQUEST_INTERVAL_SECONDS - 0.01
+    assert provider._spec.CHART_REQUEST_INTERVAL_SECONDS >= 0.2
+
+
+@pytest.mark.asyncio
+async def test_warning_request_uses_official_symbol_path_without_query() -> None:
+    def transport(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/stocks/005930/warnings"
+        assert not request.url.params
+        return httpx.Response(200, json={"result": []})
+
+    async with httpx.AsyncClient(
+        base_url="https://mock", transport=httpx.MockTransport(transport)
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        assert await provider.warnings("005930") == []
 
 
 @pytest.mark.asyncio

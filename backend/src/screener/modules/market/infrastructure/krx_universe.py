@@ -19,7 +19,7 @@ ETF = re.compile(r"(?:^|\s)ETF(?:$|\s)|상장지수펀드", re.IGNORECASE)
 ETN = re.compile(r"(?:^|\s)ETN(?:$|\s)|상장지수증권", re.IGNORECASE)
 DELISTED = re.compile(r"상장폐지|폐지종목")
 INFRASTRUCTURE_FUND = re.compile(r"인프라")
-FUND_LIKE = re.compile(r"맵스리얼티|사모펀드|증권투자회사|집합투자")
+FUND_LIKE = re.compile(r"맵스리얼티|증권투자회사|집합투자")
 
 
 @dataclass(frozen=True)

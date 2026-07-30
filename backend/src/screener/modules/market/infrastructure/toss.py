@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Never
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -141,12 +142,12 @@ class TossApiSpecification:
     CANDLES_PATH = "/api/v1/candles"
     PRICES_PATH = "/api/v1/prices"
     STOCKS_PATH = "/api/v1/stocks"
-    WARNINGS_PATH = "/api/v1/stock-warnings"
+    WARNINGS_PATH = "/api/v1/stocks/{symbol}/warnings"
     DAILY_INTERVAL = "1d"
     MAX_CANDLES = 200
     MAX_STOCK_SYMBOLS = 200
     MAX_PRICE_SYMBOLS = 100
-    CHART_REQUEST_INTERVAL_SECONDS = 0.05
+    CHART_REQUEST_INTERVAL_SECONDS = 0.21
 
 
 class TossMarketDataProvider:
@@ -230,7 +231,9 @@ class TossMarketDataProvider:
     async def daily_bars(self, symbol: str, start: date, end: date) -> list[DailyBar]:
         if start > end:
             raise ProviderValidationError("Invalid candle date range", provider=PROVIDER)
-        before: str | None = end.isoformat()
+        before: str | None = datetime.combine(
+            end, datetime.max.time(), tzinfo=ZoneInfo("Asia/Seoul")
+        ).isoformat()
         cursors: set[str] = set()
         by_date: dict[date, DailyBar] = {}
         while before is not None:
@@ -305,7 +308,7 @@ class TossMarketDataProvider:
         return quotes
 
     async def warnings(self, symbol: str) -> list[StockWarning]:
-        response = await self._request(self._spec.WARNINGS_PATH, {"symbols": symbol})
+        response = await self._request(self._spec.WARNINGS_PATH.format(symbol=symbol), {})
         rows = self._result_rows(response)
         try:
             return [
