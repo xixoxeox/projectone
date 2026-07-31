@@ -24,7 +24,12 @@ class PipelineExecutionRepository:
         self.session = session
 
     async def acquire(
-        self, trading_date: date, trigger: TriggerType, stale_after_seconds: int = 7200
+        self,
+        trading_date: date,
+        trigger: TriggerType,
+        stale_after_seconds: int = 7200,
+        *,
+        force_reanalysis: bool = False,
     ) -> ExecutionAcquireResult:
         """Acquire a date while holding a PostgreSQL transaction advisory lock.
 
@@ -41,26 +46,34 @@ class PipelineExecutionRepository:
                     "trading_date": trading_date.toordinal(),
                 },
             )
-        active = await self.session.scalar(
+        running = await self.session.scalar(
             select(WatchlistPipelineExecution)
             .where(
                 WatchlistPipelineExecution.trading_date == trading_date,
-                WatchlistPipelineExecution.status.in_(
-                    [ExecutionStatus.RUNNING.value, ExecutionStatus.SUCCEEDED.value]
-                ),
+                WatchlistPipelineExecution.status == ExecutionStatus.RUNNING.value,
             )
             .order_by(WatchlistPipelineExecution.started_at.desc())
         )
-        if active is not None and active.status == ExecutionStatus.SUCCEEDED.value:
-            # End the read-only transaction promptly and release its transaction lock.
+        succeeded = await self.session.scalar(
+            select(WatchlistPipelineExecution)
+            .where(
+                WatchlistPipelineExecution.trading_date == trading_date,
+                WatchlistPipelineExecution.status == ExecutionStatus.SUCCEEDED.value,
+            )
+            .order_by(WatchlistPipelineExecution.started_at.desc())
+        )
+        if running is None and succeeded is not None and not force_reanalysis:
             await self.session.rollback()
             return ExecutionAcquireResult(
-                status=ExecutionAcquireStatus.ALREADY_COMPLETED, execution=active
+                status=ExecutionAcquireStatus.ALREADY_COMPLETED, execution=succeeded
             )
+        if running is None and succeeded is None and force_reanalysis:
+            await self.session.rollback()
+            return ExecutionAcquireResult(status=ExecutionAcquireStatus.PRIOR_SUCCESS_REQUIRED)
         recovered_id = None
         now = datetime.now(UTC)
-        if active is not None:
-            started_at = active.started_at
+        if running is not None:
+            started_at = running.started_at
             if started_at.tzinfo is None:  # SQLite test databases discard timezone metadata.
                 started_at = started_at.replace(tzinfo=UTC)
             if started_at >= now - timedelta(seconds=stale_after_seconds):
@@ -68,14 +81,27 @@ class PipelineExecutionRepository:
                 # releases the transaction-scoped advisory lock immediately.
                 await self.session.rollback()
                 return ExecutionAcquireResult(
-                    status=ExecutionAcquireStatus.ALREADY_RUNNING, execution=active
+                    status=ExecutionAcquireStatus.ALREADY_RUNNING, execution=running
                 )
-            active.status = ExecutionStatus.FAILED.value
-            active.finished_at = now
-            active.error_code = "stale_execution_recovered"
-            active.error_detail = "Execution exceeded stale timeout"
-            recovered_id = active.id
+            running.status = ExecutionStatus.FAILED.value
+            running.finished_at = now
+            running.error_code = "stale_execution_recovered"
+            running.error_detail = "Execution exceeded stale timeout"
+            recovered_id = running.id
             await self.session.flush()
+            if force_reanalysis and succeeded is None:
+                await self.session.commit()
+                return ExecutionAcquireResult(
+                    status=ExecutionAcquireStatus.PRIOR_SUCCESS_REQUIRED,
+                    recovered_execution_id=recovered_id,
+                )
+            if not force_reanalysis and succeeded is not None:
+                await self.session.commit()
+                return ExecutionAcquireResult(
+                    status=ExecutionAcquireStatus.ALREADY_COMPLETED,
+                    execution=succeeded,
+                    recovered_execution_id=recovered_id,
+                )
         run = WatchlistPipelineExecution(
             trading_date=trading_date,
             trigger_type=trigger.value,
@@ -109,6 +135,7 @@ class PipelineExecutionRepository:
         skipped_reason: str | None = None,
         error_code: str | None = None,
         error_detail: str | None = None,
+        commit: bool = True,
     ) -> WatchlistPipelineExecution:
         run = await self.session.get(WatchlistPipelineExecution, execution_id)
         if run is None:
@@ -120,7 +147,10 @@ class PipelineExecutionRepository:
             error_code,
             error_detail,
         )
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         return run
 
     async def list(self, limit: int = 50) -> list[WatchlistPipelineExecution]:

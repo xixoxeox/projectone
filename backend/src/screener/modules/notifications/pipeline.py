@@ -12,7 +12,11 @@ logger = logging.getLogger(__name__)
 
 class PipelineRunner(Protocol):
     async def run(
-        self, trading_date: date | None = None, trigger: TriggerType = TriggerType.MANUAL
+        self,
+        trading_date: date | None = None,
+        trigger: TriggerType = TriggerType.MANUAL,
+        *,
+        force_reanalysis: bool = False,
     ) -> PipelineResult: ...
 
 
@@ -24,9 +28,13 @@ class NotificationPublishingPipeline:
         self.notifications = notifications
 
     async def run(
-        self, trading_date: date | None = None, trigger: TriggerType = TriggerType.MANUAL
+        self,
+        trading_date: date | None = None,
+        trigger: TriggerType = TriggerType.MANUAL,
+        *,
+        force_reanalysis: bool = False,
     ) -> PipelineResult:
-        result = await self.pipeline.run(trading_date, trigger)
+        result = await self.pipeline.run(trading_date, trigger, force_reanalysis=force_reanalysis)
         event_type = None
         if result.status == ExecutionStatus.SUCCEEDED:
             event_type = NotificationEventType.WATCHLIST_PUBLISHED

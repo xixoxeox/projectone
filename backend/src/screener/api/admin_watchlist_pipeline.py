@@ -9,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from screener.modules.identity.presentation.dependencies import AdminUser
 from screener.modules.market.infrastructure.models import WatchlistPipelineExecution
 from screener.modules.market.pipeline import (
+    ExecutionAcquireStatus,
     PipelineExecutionRepository,
     PipelineResult,
+    TriggerType,
 )
 from screener.modules.notifications.pipeline import PipelineRunner
 from screener.shared.database import get_db_session
@@ -20,6 +22,7 @@ router = APIRouter(prefix="/admin/watchlist", tags=["admin-watchlist-pipeline"])
 
 class RunRequest(BaseModel):
     trading_date: date | None = None
+    force_reanalysis: bool = False
 
 
 class ExecutionResponse(PipelineResult):
@@ -42,6 +45,7 @@ def response(record: WatchlistPipelineExecution) -> ExecutionResponse:
         persisted_count=record.persisted_count,
         skipped_reason=record.skipped_reason,
         error_code=record.error_code,
+        trigger_type=record.trigger_type,
     )
 
 
@@ -51,9 +55,18 @@ async def run(
     pipeline: Annotated[PipelineRunner, Depends(get_pipeline)],
     body: RunRequest | None = None,
 ) -> PipelineResult:
-    result = await pipeline.run(None if body is None else body.trading_date)
+    force = body.force_reanalysis if body else False
+    if force and body is not None and body.trading_date is None:
+        raise HTTPException(422, "trading_date is required for force_reanalysis")
+    result = await pipeline.run(
+        None if body is None else body.trading_date,
+        TriggerType.MANUAL_REANALYSIS if force else TriggerType.MANUAL,
+        force_reanalysis=force,
+    )
     if result.skipped_reason == "already_running":
         raise HTTPException(409, "A run is already active")
+    if result.skipped_reason == ExecutionAcquireStatus.PRIOR_SUCCESS_REQUIRED.value:
+        raise HTTPException(409, "A prior successful execution is required for reanalysis")
     if result.status == "failed":
         raise HTTPException(500, detail={"error_code": result.error_code})
     return result

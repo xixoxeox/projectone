@@ -27,12 +27,14 @@ class ExecutionStatus(StrEnum):
 class TriggerType(StrEnum):
     SCHEDULED = "scheduled"
     MANUAL = "manual"
+    MANUAL_REANALYSIS = "manual_reanalysis"
 
 
 class ExecutionAcquireStatus(StrEnum):
     ACQUIRED = "acquired"
     ALREADY_RUNNING = "already_running"
     ALREADY_COMPLETED = "already_completed"
+    PRIOR_SUCCESS_REQUIRED = "prior_success_required"
 
 
 class ExecutionAcquireResult(BaseModel):
@@ -54,3 +56,4 @@ class PipelineResult(BaseModel):
     persisted_count: int | None = None
     skipped_reason: str | None = None
     error_code: str | None = None
+    trigger_type: TriggerType | None = None
