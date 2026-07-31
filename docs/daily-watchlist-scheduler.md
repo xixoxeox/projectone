@@ -42,8 +42,11 @@ runs this sequence and the PostgreSQL integration suite against its PostgreSQL 1
 Transactions are deliberately short: ownership/history creation commits first, provider and CPU
 work occurs afterward, watchlist replacement commits atomically only after all ranked results are
 ready, and completion is recorded separately. Failure is recorded in a fresh session. Existing
-watchlists therefore survive upstream or calculation failures. An empty passing candidate set is
-recorded as `skipped/no_candidates` and does not replace a valid watchlist. Decimal scoring and rank
+watchlists therefore survive upstream or calculation failures. A completed run with no candidate
+at or above the configured score threshold is recorded as `succeeded` with `persisted_count=0` and
+atomically replaces that date's prior rows with an intentional empty result. Its execution record
+retains `screened_count`, setup-passing `candidate_count`, threshold-passing `qualified_count`, and
+`score_threshold`, so the UI can explain why there is nothing to show. Decimal scoring and rank
 order continue through the existing ranking and repository implementations unchanged.
 
 There is no whole-pipeline retry loop. Provider retries retain their existing bounded policy; a
@@ -57,6 +60,10 @@ All endpoints require the existing administrator bearer authentication:
 * `GET /api/v1/admin/watchlist/executions/latest`
 * `GET /api/v1/admin/watchlist/executions?limit=50`
 * `GET /api/v1/admin/watchlist/executions/{execution_id}`
+
+Authenticated users read the combined funnel and rows through
+`GET /api/v1/screener/results/{trading_date}`. Migration `0009_screening_summary`
+adds the nullable funnel columns; apply `alembic upgrade head` before deploying this version.
 
 Responses exclude `error_detail`; stack information goes only to server logs. An active manual run
 returns HTTP 409, while an already-completed date returns HTTP 200 with `already_completed`.

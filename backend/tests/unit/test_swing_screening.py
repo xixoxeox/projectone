@@ -56,6 +56,8 @@ def complete_indicators() -> IndicatorSnapshot:
 def test_config_defaults_are_immutable_and_safe() -> None:
     config = SwingScreeningConfig()
     assert config.minimum_history_bars == 61
+    assert config.minimum_candidate_score == Decimal("80")
+    assert config.maximum_candidates == 5
     assert config.snapshot()["minimum_close"] == "1000"
     with pytest.raises(FrozenInstanceError):
         config.box_lookback = 10  # type: ignore[misc]
@@ -77,11 +79,18 @@ def test_definitions_uses_the_app_owned_canonical_config() -> None:
         ({"pullback_lookback": 4, "pullback_volume_lookback": 5}, "pullback"),
         ({"contraction_short_lookback": 21}, "contraction"),
         ({"minimum_history_bars": 20}, "unsafe"),
+        ({"maximum_candidates": 0}, "maximum_candidates"),
     ],
 )
 def test_config_rejects_unsafe_lookbacks(changes: dict[str, int], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         SwingScreeningConfig(**changes)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("score", [Decimal("-0.01"), Decimal("100.01")])
+def test_config_rejects_score_threshold_outside_100_point_scale(score: Decimal) -> None:
+    with pytest.raises(ValueError, match="minimum_candidate_score"):
+        SwingScreeningConfig(minimum_candidate_score=score)
 
 
 def test_score_helpers_have_exact_decimal_boundaries() -> None:

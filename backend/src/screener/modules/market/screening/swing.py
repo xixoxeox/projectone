@@ -72,7 +72,8 @@ class SwingScreeningConfig:
     minimum_close: Decimal = Decimal("1000")
     minimum_average_trading_value_20: Decimal = Decimal("1000000000")
     maximum_atr_pct: Decimal = Decimal("0.12")
-    maximum_candidates: int = 30
+    minimum_candidate_score: Decimal = Decimal("80")
+    maximum_candidates: int = 5
     box_lookback: int = 20
     maximum_box_width_pct: Decimal = Decimal("0.15")
     minimum_breakout_volume_ratio: Decimal = Decimal("1.20")
@@ -122,6 +123,10 @@ class SwingScreeningConfig:
         )
         if self.minimum_history_bars < required:
             raise ValueError("minimum_history_bars is unsafe")
+        if not ZERO <= self.minimum_candidate_score <= HUNDRED:
+            raise ValueError("minimum_candidate_score must be between 0 and 100")
+        if self.maximum_candidates <= 0:
+            raise ValueError("maximum_candidates must be positive")
 
     def snapshot(self) -> dict[str, str | int]:
         return {

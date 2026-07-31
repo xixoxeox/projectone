@@ -58,6 +58,7 @@ export function BacktestsDashboard() {
         <Link href="/dashboard">대시보드</Link>
         <Link href="/watchlist">관심 종목</Link>
         <Link href="/screener">스크리너</Link>
+        <Link href="/analysis">종목 분석</Link>
         <Link aria-current="page" href="/backtests">
           백테스트
         </Link>

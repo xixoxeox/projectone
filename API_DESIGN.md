@@ -49,6 +49,7 @@
 | GET | `/instruments` | KOSPI 종목 검색·필터·cursor 페이지 |
 | GET | `/instruments/{instrument_id}` | 종목 메타데이터와 상태 |
 | GET | `/instruments/{instrument_id}/bars` | 제한된 기간의 일봉/수정주가 |
+| GET | `/instruments/{instrument_id}/analysis` | 최신 현재가·일봉·분봉 기반 개별 종목 기술 분석 |
 | GET | `/instruments/{instrument_id}/indicators` | 계산된 기술 지표와 버전 |
 | GET | `/instruments/{instrument_id}/signals` | 신호 이력/근거 |
 

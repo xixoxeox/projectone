@@ -1,5 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+from typing import cast
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -130,7 +132,10 @@ class PipelineExecutionRepository:
         *,
         status: ExecutionStatus,
         stage: PipelineStage,
+        screened_count: int | None = None,
         candidate_count: int | None = None,
+        qualified_count: int | None = None,
+        score_threshold: Decimal | None = None,
         persisted_count: int | None = None,
         skipped_reason: str | None = None,
         error_code: str | None = None,
@@ -141,7 +146,11 @@ class PipelineExecutionRepository:
         if run is None:
             raise LookupError("pipeline execution disappeared")
         run.status, run.stage, run.finished_at = status.value, stage.value, datetime.now(UTC)
-        run.candidate_count, run.persisted_count = candidate_count, persisted_count
+        run.screened_count = screened_count
+        run.candidate_count = candidate_count
+        run.qualified_count = qualified_count
+        run.score_threshold = score_threshold
+        run.persisted_count = persisted_count
         run.skipped_reason, run.error_code, run.error_detail = (
             skipped_reason,
             error_code,
@@ -166,3 +175,17 @@ class PipelineExecutionRepository:
 
     async def get(self, execution_id: uuid.UUID) -> WatchlistPipelineExecution | None:
         return await self.session.get(WatchlistPipelineExecution, execution_id)
+
+    async def latest_succeeded(self, trading_date: date) -> WatchlistPipelineExecution | None:
+        return cast(
+            WatchlistPipelineExecution | None,
+            await self.session.scalar(
+                select(WatchlistPipelineExecution)
+                .where(
+                    WatchlistPipelineExecution.trading_date == trading_date,
+                    WatchlistPipelineExecution.status == ExecutionStatus.SUCCEEDED.value,
+                )
+                .order_by(WatchlistPipelineExecution.started_at.desc())
+                .limit(1)
+            ),
+        )

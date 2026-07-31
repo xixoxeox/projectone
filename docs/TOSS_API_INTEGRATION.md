@@ -42,7 +42,8 @@ longer than an incremental sync; do not start concurrent sync jobs while it runs
 | Official operation | Provider-neutral output |
 | --- | --- |
 | `POST /oauth2/token` | in-memory bearer token and expiry |
-| `GET /api/v1/candles` | chronological `DailyBar` values |
+| `GET /api/v1/candles` with `interval=1d` | chronological `DailyBar` values |
+| `GET /api/v1/candles` with `interval=1m` | chronological `MinuteBar` values |
 | `GET /api/v1/prices` | `QuoteSnapshot` values |
 | `GET /api/v1/stocks` | `InstrumentSnapshot` metadata |
 | `GET /api/v1/stock-warnings` | `StockWarning` states |
@@ -53,7 +54,24 @@ locked token manager. The adapter retries a market request only once after 401.
 
 Prices use `Decimal`; delayed status is nullable because it is not invented when the
 response lacks it. Candle prices and volume are non-negative, OHLC relationships and
-timezone-aware timestamps are validated, dates are de-duplicated, and results sorted.
+timezone-aware timestamps are validated, dates or timestamps are de-duplicated, and
+results sorted.
+
+## Individual chart analysis
+
+Authenticated `GET /api/v1/instruments/{symbol}/analysis` supports active, listed
+KOSPI common shares. Each request fetches the current quote, up to 240 calendar days
+of daily candles, the latest 200 one-minute candles, and warning states. The backend
+constructs 5-minute and 10-minute candles in `Asia/Seoul`, then deterministically
+calculates daily trend, the existing screener state, intraday SMA/VWAP/momentum,
+nearby support and resistance candidates, confirmation and invalidation conditions,
+and risk flags.
+
+The web screen at `/analysis` defaults to the 5-minute chart and offers daily,
+1-minute, 5-minute, and 10-minute views. It refreshes no more frequently than every
+60 seconds while the tab is visible and keeps the last successful result visible if
+a refresh fails. This is request-time latest data, not a websocket feed; the newest
+minute candle may still be forming.
 
 `Retry-After` is preferred for 429. `X-RateLimit-Reset` is interpreted as an epoch
 fallback. Both are parsed defensively and waits are capped at 30 seconds. Transient

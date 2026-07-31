@@ -132,6 +132,39 @@ async def test_candles_map_sort_decimal_and_request_contract() -> None:
 
 
 @pytest.mark.asyncio
+async def test_minute_candles_use_official_interval_and_return_chronological_bars() -> None:
+    def transport(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/candles"
+        assert request.url.params["symbol"] == "005930"
+        assert request.url.params["interval"] == "1m"
+        assert request.url.params["count"] == "2"
+        assert request.url.params["adjusted"] == "true"
+        assert "before" not in request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "result": {
+                    "candles": [
+                        candle("2026-07-31T09:01:00+09:00", "101", "103", "100", "102", "20"),
+                        candle("2026-07-31T09:00:00+09:00", "100", "102", "99", "101", "10"),
+                    ],
+                    "nextBefore": None,
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(
+        base_url="https://mock", transport=httpx.MockTransport(transport)
+    ) as client:
+        provider = TossMarketDataProvider(client, TokenManager(client, "id", "secret", issuer))
+        bars = await provider.minute_bars("005930", 2)
+
+    assert [bar.timestamp.minute for bar in bars] == [0, 1]
+    assert bars[-1].close == Decimal("102")
+    assert bars[-1].currency == "KRW"
+
+
+@pytest.mark.asyncio
 async def test_candle_pages_deduplicate_inclusive_boundary_and_reject_cursor_loop() -> None:
     calls = 0
     before_values: list[str] = []

@@ -9,6 +9,7 @@ export default function Dashboard() {
             대시보드
           </Link>{" "}
           · <Link href="/watchlist">관심 종목</Link> ·{" "}
+          <Link href="/analysis">종목 분석</Link> ·{" "}
           <Link href="/backtests">백테스트</Link> · <Link href="/screener">스크리너</Link>
         </nav>
         <header>
@@ -16,9 +17,9 @@ export default function Dashboard() {
           <h1>대시보드</h1>
         </header>
         <section className="card">
-          <h2>프로젝트 준비 완료</h2>
+          <h2>스윙 트레이딩 의사결정 도구</h2>
           <p className="muted">
-            시장 데이터와 스크리닝 기능은 다음 스프린트에서 제공됩니다.
+            스크리너로 핵심 후보를 찾거나 종목 분석에서 궁금한 종목을 바로 확인하세요.
           </p>
         </section>
       </main>

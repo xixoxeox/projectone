@@ -1,4 +1,6 @@
-from datetime import UTC, date, datetime
+import asyncio
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
@@ -9,6 +11,11 @@ from screener.modules.market.domain import (
     ProviderStatus,
     QuoteSnapshot,
     StockWarning,
+)
+from screener.modules.market.screening.swing import SwingScreeningConfig
+from screener.modules.market.technical_analysis import (
+    RealtimeTechnicalAnalysis,
+    analyze_realtime,
 )
 
 
@@ -30,8 +37,13 @@ class PricesResult(BaseModel):
 class MarketDataService:
     MAX_RANGE_DAYS = 366
 
-    def __init__(self, provider: MarketDataProvider) -> None:
+    def __init__(
+        self,
+        provider: MarketDataProvider,
+        screening_config: SwingScreeningConfig | None = None,
+    ) -> None:
         self.provider = provider
+        self.screening_config = screening_config or SwingScreeningConfig()
 
     async def status(self) -> ProviderStatus:
         return await self.provider.status()
@@ -74,3 +86,30 @@ class MarketDataService:
 
     async def warnings(self, symbol: str) -> list[StockWarning]:
         return await self.provider.warnings(self.symbol(symbol))
+
+    async def realtime_analysis(self, symbol: str) -> RealtimeTechnicalAnalysis:
+        symbol = self.symbol(symbol)
+        instrument = await self.provider.instrument(symbol)
+        if (
+            instrument.market != "KOSPI"
+            or instrument.security_type != "common_stock"
+            or instrument.listing_status != "listed"
+        ):
+            raise ValueError("only active KOSPI common stocks are supported")
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+        prices, daily_bars, minute_bars, warnings = await asyncio.gather(
+            self.provider.prices([symbol]),
+            self.provider.daily_bars(symbol, today - timedelta(days=240), today),
+            self.provider.minute_bars(symbol, 200),
+            self.provider.warnings(symbol),
+        )
+        if len(prices) != 1 or prices[0].symbol != symbol:
+            raise ValueError("provider did not return the requested quote")
+        return analyze_realtime(
+            instrument,
+            prices[0],
+            daily_bars,
+            minute_bars,
+            warnings,
+            self.screening_config,
+        )
