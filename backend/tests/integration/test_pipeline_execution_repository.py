@@ -46,6 +46,15 @@ async def acquire(sessions: async_sessionmaker[AsyncSession], day: date, stale: 
         return await PipelineExecutionRepository(session).acquire(day, TriggerType.MANUAL, stale)
 
 
+async def reanalyze(sessions: async_sessionmaker[AsyncSession], day: date):
+    async with sessions() as session:
+        return await PipelineExecutionRepository(session).acquire(
+            day,
+            TriggerType.MANUAL_REANALYSIS,
+            force_reanalysis=True,
+        )
+
+
 async def test_acquire_running_success_failed_and_retry(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -64,6 +73,30 @@ async def test_acquire_running_success_failed_and_retry(
             retry.execution.id, status=ExecutionStatus.SUCCEEDED, stage=PipelineStage.COMPLETED
         )
     assert (await acquire(sessions, day)).status == ExecutionAcquireStatus.ALREADY_COMPLETED
+
+    forced = await reanalyze(sessions, day)
+    assert forced.status == ExecutionAcquireStatus.ACQUIRED
+    assert forced.execution.id != retry.execution.id
+    assert forced.execution.trigger_type == "manual_reanalysis"
+    async with sessions() as session:
+        successes = list(
+            await session.scalars(
+                select(WatchlistPipelineExecution).where(
+                    WatchlistPipelineExecution.status == "succeeded"
+                )
+            )
+        )
+    assert [item.id for item in successes] == [retry.execution.id]
+
+
+async def test_reanalysis_requires_prior_success_and_rejects_fresh_run(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    day = date(2026, 7, 30)
+    assert (await reanalyze(sessions, day)).status == ExecutionAcquireStatus.PRIOR_SUCCESS_REQUIRED
+    running = await acquire(sessions, day)
+    assert running.status == ExecutionAcquireStatus.ACQUIRED
+    assert (await reanalyze(sessions, day)).status == ExecutionAcquireStatus.ALREADY_RUNNING
 
 
 async def test_stale_recovery_is_atomic_and_preserves_history(

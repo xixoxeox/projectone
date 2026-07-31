@@ -54,7 +54,11 @@ class DailyWatchlistPipeline:
         self.screening_config = screening_config or SwingScreeningConfig()
 
     async def run(
-        self, trading_date: date | None = None, trigger: TriggerType = TriggerType.MANUAL
+        self,
+        trading_date: date | None = None,
+        trigger: TriggerType = TriggerType.MANUAL,
+        *,
+        force_reanalysis: bool = False,
     ) -> PipelineResult:
         started = datetime.now(UTC)
         target = trading_date or datetime.now(self.timezone).date()
@@ -69,7 +73,7 @@ class DailyWatchlistPipeline:
             )
         async with self.sessions() as session:
             acquisition = await PipelineExecutionRepository(session).acquire(
-                target, trigger, self.stale_after_seconds
+                target, trigger, self.stale_after_seconds, force_reanalysis=force_reanalysis
             )
         if acquisition.status != ExecutionAcquireStatus.ACQUIRED:
             return PipelineResult(
@@ -84,10 +88,13 @@ class DailyWatchlistPipeline:
         if not isinstance(run, WatchlistPipelineExecution):
             raise RuntimeError("acquired execution is missing")
 
-        stage = PipelineStage.MARKET_SYNC
+        stage = (
+            PipelineStage.INDICATOR_CALCULATION if force_reanalysis else PipelineStage.MARKET_SYNC
+        )
         try:
-            await self._stage(run.id, stage)
-            await self.sync.all()
+            if not force_reanalysis:
+                await self._stage(run.id, stage)
+                await self.sync.all()
             stage = PipelineStage.INDICATOR_CALCULATION
             await self._stage(run.id, stage)
             inputs = await self._inputs(target)
@@ -99,32 +106,19 @@ class DailyWatchlistPipeline:
             stage = PipelineStage.CANDIDATE_RANKING
             await self._stage(run.id, stage)
             ranked = self.ranker.rank(candidates)[: self.screening_config.maximum_candidates]
-            if not ranked:
-                async with self.sessions() as session:
-                    await WatchlistRepository(session).save(target, [])
-                    await session.commit()
-                async with self.sessions() as session:
-                    record = await PipelineExecutionRepository(session).finish(
-                        run.id,
-                        status=ExecutionStatus.SUCCEEDED,
-                        stage=PipelineStage.COMPLETED,
-                        candidate_count=0,
-                        persisted_count=0,
-                    )
-                return self._result(record)
             stage = PipelineStage.WATCHLIST_PERSISTENCE
             await self._stage(run.id, stage)
             async with self.sessions() as session:
                 await WatchlistRepository(session).save(target, ranked)
-                await session.commit()
-            async with self.sessions() as session:
                 record = await PipelineExecutionRepository(session).finish(
                     run.id,
                     status=ExecutionStatus.SUCCEEDED,
                     stage=PipelineStage.COMPLETED,
                     candidate_count=len(candidates),
                     persisted_count=len(ranked),
+                    commit=False,
                 )
+                await session.commit()
             result = self._result(record)
             logger.info(
                 "watchlist_pipeline_complete execution_id=%s trading_date=%s status=%s "
@@ -242,4 +236,5 @@ class DailyWatchlistPipeline:
             persisted_count=record.persisted_count,
             skipped_reason=record.skipped_reason,
             error_code=record.error_code,
+            trigger_type=record.trigger_type,
         )
