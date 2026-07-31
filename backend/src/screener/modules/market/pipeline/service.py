@@ -111,7 +111,6 @@ class DailyWatchlistPipeline:
             async with self.sessions() as session:
                 await session.begin()
                 try:
-                    await WatchlistRepository(session).save(target, ranked)
                     record = await PipelineExecutionRepository(session).finish(
                         run.id,
                         status=ExecutionStatus.SUCCEEDED,
@@ -120,6 +119,7 @@ class DailyWatchlistPipeline:
                         persisted_count=len(ranked),
                         commit=False,
                     )
+                    await WatchlistRepository(session).save(target, ranked)
                     await session.commit()
                 except Exception:
                     await session.rollback()
