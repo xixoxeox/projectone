@@ -109,16 +109,21 @@ class DailyWatchlistPipeline:
             stage = PipelineStage.WATCHLIST_PERSISTENCE
             await self._stage(run.id, stage)
             async with self.sessions() as session:
-                await WatchlistRepository(session).save(target, ranked)
-                record = await PipelineExecutionRepository(session).finish(
-                    run.id,
-                    status=ExecutionStatus.SUCCEEDED,
-                    stage=PipelineStage.COMPLETED,
-                    candidate_count=len(candidates),
-                    persisted_count=len(ranked),
-                    commit=False,
-                )
-                await session.commit()
+                await session.begin()
+                try:
+                    await WatchlistRepository(session).save(target, ranked)
+                    record = await PipelineExecutionRepository(session).finish(
+                        run.id,
+                        status=ExecutionStatus.SUCCEEDED,
+                        stage=PipelineStage.COMPLETED,
+                        candidate_count=len(candidates),
+                        persisted_count=len(ranked),
+                        commit=False,
+                    )
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
+                    raise
             result = self._result(record)
             logger.info(
                 "watchlist_pipeline_complete execution_id=%s trading_date=%s status=%s "

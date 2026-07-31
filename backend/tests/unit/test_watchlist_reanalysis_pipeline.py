@@ -254,21 +254,40 @@ async def test_final_commit_failure_preserves_previous_entries(
     sessions: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     day = date(2026, 7, 31)
-    await seed_success(sessions, day)
+    original = await seed_success(sessions, day)
     original_commit = AsyncSession.commit
+    replacement_commit_attempted = False
 
     async def fail_replacement_commit(session: AsyncSession) -> None:
+        nonlocal replacement_commit_attempted
         if any(
             isinstance(value, WatchlistPipelineExecution)
             and value.trigger_type == "manual_reanalysis"
             and value.status == "succeeded"
             for value in session.identity_map.values()
         ):
+            replacement_commit_attempted = True
             raise RuntimeError("final commit failed")
         await original_commit(session)
 
     monkeypatch.setattr(AsyncSession, "commit", fail_replacement_commit)
     value, _, _, _ = pipeline(sessions)
     result = await value.run(day, TriggerType.MANUAL_REANALYSIS, force_reanalysis=True)
+    assert replacement_commit_attempted
     assert result.status == ExecutionStatus.FAILED
     assert await symbols(sessions, day) == ["OLD"]
+    async with sessions() as session:
+        executions = list(
+            (
+                await session.scalars(
+                    select(WatchlistPipelineExecution).where(
+                        WatchlistPipelineExecution.trading_date == day
+                    )
+                )
+            ).all()
+        )
+    successful = [execution for execution in executions if execution.status == "succeeded"]
+    failed = [execution for execution in executions if execution.status == "failed"]
+    assert [execution.id for execution in successful] == [original.id]
+    assert len(failed) == 1
+    assert failed[0].trigger_type == "manual_reanalysis"
