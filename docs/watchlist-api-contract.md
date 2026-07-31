@@ -22,3 +22,12 @@ The selected date is represented as `/watchlist?date=YYYY-MM-DD`. Updating it us
 ## Local development
 
 Set `NEXT_PUBLIC_API_BASE_PATH` only when the backend is not available at the default same-origin `/api/v1` path, then run `npm run dev` from `frontend`. Do not include a trailing slash and do not commit secrets.
+
+## Reanalysis migration downgrade
+
+Migration `0008_watchlist_reanalysis` preserves every successful execution as audit
+history. After reanalysis creates multiple successful executions for the same trading
+date, downgrade is intentionally unavailable because the previous unique index cannot
+represent that history. The guarded downgrade fails before changing indexes or rows; an
+operator must explicitly resolve the audit history outside Alembic before retrying a
+downgrade. No migration automatically deletes, rewrites, or collapses successful runs.

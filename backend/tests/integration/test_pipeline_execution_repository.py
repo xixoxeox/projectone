@@ -99,6 +99,101 @@ async def test_reanalysis_requires_prior_success_and_rejects_fresh_run(
     assert (await reanalyze(sessions, day)).status == ExecutionAcquireStatus.ALREADY_RUNNING
 
 
+async def test_stale_reanalysis_recovery_preserves_normal_duplicate_protection(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    day = date(2026, 7, 31)
+    success = WatchlistPipelineExecution(
+        trading_date=day,
+        trigger_type="manual",
+        status="succeeded",
+        stage="completed",
+        started_at=datetime.now(UTC) - timedelta(hours=3),
+        finished_at=datetime.now(UTC) - timedelta(hours=2),
+    )
+    stale = WatchlistPipelineExecution(
+        trading_date=day,
+        trigger_type="manual_reanalysis",
+        status="running",
+        stage="candidate_scanning",
+        started_at=datetime.now(UTC) - timedelta(hours=2),
+    )
+    async with sessions() as session:
+        session.add_all([success, stale])
+        await session.commit()
+        success_id, stale_id = success.id, stale.id
+
+    result = await acquire(sessions, day, stale=1)
+
+    assert result.status == ExecutionAcquireStatus.ALREADY_COMPLETED
+    assert result.execution.id == success_id
+    assert result.recovered_execution_id == stale_id
+    async with sessions() as session:
+        rows = list(
+            (
+                await session.scalars(
+                    select(WatchlistPipelineExecution).where(
+                        WatchlistPipelineExecution.trading_date == day
+                    )
+                )
+            ).all()
+        )
+    assert len(rows) == 2
+    assert next(row for row in rows if row.id == stale_id).status == "failed"
+    assert next(row for row in rows if row.id == success_id).status == "succeeded"
+
+
+async def test_stale_reanalysis_force_matrix(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    with_success = date(2026, 8, 3)
+    without_success = date(2026, 8, 4)
+    async with sessions() as session:
+        session.add_all(
+            [
+                WatchlistPipelineExecution(
+                    trading_date=with_success,
+                    trigger_type="manual",
+                    status="succeeded",
+                    stage="completed",
+                    started_at=datetime.now(UTC) - timedelta(hours=3),
+                ),
+                WatchlistPipelineExecution(
+                    trading_date=with_success,
+                    trigger_type="manual_reanalysis",
+                    status="running",
+                    stage="candidate_scanning",
+                    started_at=datetime.now(UTC) - timedelta(hours=2),
+                ),
+                WatchlistPipelineExecution(
+                    trading_date=without_success,
+                    trigger_type="manual_reanalysis",
+                    status="running",
+                    stage="candidate_scanning",
+                    started_at=datetime.now(UTC) - timedelta(hours=2),
+                ),
+            ]
+        )
+        await session.commit()
+    async with sessions() as session:
+        acquired = await PipelineExecutionRepository(session).acquire(
+            with_success,
+            TriggerType.MANUAL_REANALYSIS,
+            stale_after_seconds=1,
+            force_reanalysis=True,
+        )
+    assert acquired.status == ExecutionAcquireStatus.ACQUIRED
+    async with sessions() as session:
+        rejected = await PipelineExecutionRepository(session).acquire(
+            without_success,
+            TriggerType.MANUAL_REANALYSIS,
+            stale_after_seconds=1,
+            force_reanalysis=True,
+        )
+    assert rejected.status == ExecutionAcquireStatus.PRIOR_SUCCESS_REQUIRED
+    assert rejected.recovered_execution_id is not None
+
+
 async def test_stale_recovery_is_atomic_and_preserves_history(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:

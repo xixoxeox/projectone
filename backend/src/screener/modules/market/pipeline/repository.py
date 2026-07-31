@@ -95,6 +95,13 @@ class PipelineExecutionRepository:
                     status=ExecutionAcquireStatus.PRIOR_SUCCESS_REQUIRED,
                     recovered_execution_id=recovered_id,
                 )
+            if not force_reanalysis and succeeded is not None:
+                await self.session.commit()
+                return ExecutionAcquireResult(
+                    status=ExecutionAcquireStatus.ALREADY_COMPLETED,
+                    execution=succeeded,
+                    recovered_execution_id=recovered_id,
+                )
         run = WatchlistPipelineExecution(
             trading_date=trading_date,
             trigger_type=trigger.value,

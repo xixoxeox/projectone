@@ -29,7 +29,7 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy src
-      - run: test "$(alembic heads)" = "0007_portfolio_snapshots (head)"
+      - run: test "$(alembic heads)" = "0008_watchlist_reanalysis (head)"
       - run: alembic upgrade head
       - run: alembic downgrade -1
       - run: alembic upgrade head
