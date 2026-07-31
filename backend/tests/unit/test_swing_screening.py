@@ -1,23 +1,56 @@
 """Focused Sprint 19 configuration, scoring, aggregation, and ranking tests."""
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import FrozenInstanceError
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
 from screener.api.screener import definitions
-from screener.modules.market.indicators.models import ScreeningResult
+from screener.modules.market.domain import DailyBar
+from screener.modules.market.indicators.models import IndicatorSnapshot, ScreeningResult
 from screener.modules.market.ranking.ranker import SwingCandidateRanker
+from screener.modules.market.scanning import CandidateScanner, ScanInput
+from screener.modules.market.screening import ScreeningEngine
 from screener.modules.market.screening.swing import (
+    MultiSetupSwingStrategy,
     SwingScreeningConfig,
+    _true_ranges,
     clamp_score,
     high_is_good,
     low_is_good,
     quantize_score,
     triangular_score,
 )
+
+
+def daily_bars(symbol: str = "005930", count: int = 61) -> list[DailyBar]:
+    return [
+        DailyBar(
+            symbol=symbol,
+            trading_date=date(2026, 5, 1) + timedelta(days=index),
+            open=Decimal("10000"),
+            high=Decimal("10100"),
+            low=Decimal("9900"),
+            close=Decimal("10000"),
+            volume=200_000,
+            source="test",
+            as_of=datetime(2026, 5, 1, tzinfo=UTC) + timedelta(days=index),
+        )
+        for index in range(count)
+    ]
+
+
+def complete_indicators() -> IndicatorSnapshot:
+    return IndicatorSnapshot(
+        sma20=Decimal("9900"),
+        sma60=Decimal("9800"),
+        ema20=Decimal("9950"),
+        atr14=Decimal("200"),
+    )
 
 
 def test_config_defaults_are_immutable_and_safe() -> None:
@@ -63,6 +96,84 @@ def test_score_helpers_have_exact_decimal_boundaries() -> None:
     assert triangular_score(
         Decimal(".06"), Decimal(".03"), Decimal(".06"), Decimal(".12")
     ) == Decimal("100.00")
+
+
+def test_contraction_accepts_sufficient_daily_bar_history() -> None:
+    passed, metrics, rules = MultiSetupSwingStrategy()._contraction(
+        daily_bars(), complete_indicators()
+    )
+
+    assert passed is False
+    assert metrics["prior_long_average_true_range"] == Decimal("200")
+    assert rules["true_range"] is False
+
+
+def test_true_ranges_have_one_observation_per_adjacent_pair() -> None:
+    bars = daily_bars(count=23)
+
+    assert len(_true_ranges(bars)) == len(bars) - 1
+
+
+def test_true_ranges_include_previous_close_gaps() -> None:
+    bars = daily_bars(count=3)
+    bars[1] = bars[1].model_copy(
+        update={
+            "open": Decimal("11000"),
+            "high": Decimal("11100"),
+            "low": Decimal("10900"),
+            "close": Decimal("11000"),
+        }
+    )
+    bars[2] = bars[2].model_copy(
+        update={
+            "open": Decimal("10000"),
+            "high": Decimal("10100"),
+            "low": Decimal("9900"),
+            "close": Decimal("10000"),
+        }
+    )
+
+    assert _true_ranges(bars) == [Decimal("1100"), Decimal("1100")]
+
+
+def test_full_swing_evaluation_completes_with_sufficient_history() -> None:
+    result = MultiSetupSwingStrategy().evaluate(daily_bars(), complete_indicators())
+
+    assert result.symbol == "005930"
+    assert (
+        "prior_long_average_true_range" in result.setup_metrics["volatility_contraction_breakout"]
+    )
+
+
+def test_candidate_scanner_evaluates_two_real_swing_inputs() -> None:
+    class RecordingSwingStrategy(MultiSetupSwingStrategy):
+        def __init__(self) -> None:
+            super().__init__()
+            self.evaluated_symbols: list[str] = []
+
+        def evaluate(
+            self, bars: Sequence[DailyBar], indicators: IndicatorSnapshot
+        ) -> ScreeningResult:
+            self.evaluated_symbols.append(bars[-1].symbol)
+            return super().evaluate(bars, indicators)
+
+    strategy = RecordingSwingStrategy()
+    inputs = [
+        ScanInput(symbol=symbol, bars=daily_bars(symbol), indicators=complete_indicators())
+        for symbol in ("005930", "000660")
+    ]
+
+    CandidateScanner(ScreeningEngine(strategy)).scan(inputs)
+
+    assert strategy.evaluated_symbols == ["005930", "000660"]
+
+
+def test_contraction_insufficient_history_behavior_is_unchanged() -> None:
+    assert MultiSetupSwingStrategy()._contraction(daily_bars(count=21), complete_indicators()) == (
+        False,
+        {"setup_score": Decimal("0")},
+        {},
+    )
 
 
 @pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity")])

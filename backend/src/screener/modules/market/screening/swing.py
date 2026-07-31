@@ -3,6 +3,7 @@
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from itertools import pairwise
 
 from screener.modules.market.domain import DailyBar
 from screener.modules.market.indicators.models import IndicatorSnapshot, ScreeningResult
@@ -11,6 +12,17 @@ ZERO, HUNDRED = Decimal("0"), Decimal("100")
 type Evaluation = tuple[bool, dict[str, Decimal], dict[str, bool]]
 type CommonEvaluation = tuple[bool, list[str], dict[str, Decimal]]
 SETUP_ORDER = ("volatility_contraction_breakout", "box_breakout", "trend_pullback")
+
+
+def _true_ranges(bars: Sequence[DailyBar]) -> list[Decimal]:
+    return [
+        max(
+            current.high - current.low,
+            abs(current.high - previous.close),
+            abs(current.low - previous.close),
+        )
+        for previous, current in pairwise(bars)
+    ]
 
 
 def _finite(*values: Decimal) -> None:
@@ -317,10 +329,7 @@ class MultiSetupSwingStrategy:
         lo = min(b.low for b in rng)
         rp = (hi - lo) / hi if hi else ZERO
         seq = bars[-c.contraction_long_lookback - 2 : -1]
-        trs = [
-            max(b.high - b.low, abs(b.high - p.close), abs(b.low - p.close))
-            for p, b in zip(seq, seq[1:], strict=True)
-        ]
+        trs = _true_ranges(seq)
         longtr = sum(trs, ZERO) / Decimal(len(trs))
         shorttr = sum(trs[-c.contraction_short_lookback :], ZERO) / Decimal(
             c.contraction_short_lookback
