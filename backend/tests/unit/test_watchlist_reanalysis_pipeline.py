@@ -39,12 +39,12 @@ async def sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     await engine.dispose()
 
 
-def candidate(symbol: str) -> RankedCandidate:
+def candidate(symbol: str, score: str = "90", rank: int = 1) -> RankedCandidate:
     result = ScreeningResult(symbol=symbol, passed=True)
     return RankedCandidate(
         symbol=symbol,
-        rank=1,
-        total_score=Decimal("90"),
+        rank=rank,
+        total_score=Decimal(score),
         component_scores={"trend": Decimal("90")},
         source_result=result,
     )
@@ -204,6 +204,38 @@ async def test_successful_empty_reanalysis_intentionally_clears_entries(
     result = await value.run(day, TriggerType.MANUAL_REANALYSIS, force_reanalysis=True)
     assert result.status == ExecutionStatus.SUCCEEDED
     assert await symbols(sessions, day) == []
+
+
+async def test_score_threshold_records_explainable_empty_funnel(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    day = date(2026, 7, 31)
+    value, _, _, _ = pipeline(sessions, ranked=[candidate("LOW", "79.99")])
+    value._inputs = AsyncMock(return_value=[object(), object(), object()])  # type: ignore[method-assign,list-item]
+
+    result = await value.run(day)
+
+    assert result.status == ExecutionStatus.SUCCEEDED
+    assert result.screened_count == 3
+    assert result.candidate_count == 1
+    assert result.qualified_count == 0
+    assert result.score_threshold == Decimal("80")
+    assert result.persisted_count == 0
+    assert await symbols(sessions, day) == []
+
+
+async def test_pipeline_persists_only_top_five_candidates_at_or_above_80(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    day = date(2026, 7, 31)
+    ranked = [candidate(f"S{index}", str(100 - index), rank=index + 1) for index in range(7)]
+    value, _, _, _ = pipeline(sessions, ranked=ranked)
+
+    result = await value.run(day)
+
+    assert result.qualified_count == 7
+    assert result.persisted_count == 5
+    assert await symbols(sessions, day) == [f"S{index}" for index in range(5)]
 
 
 @pytest.mark.parametrize("failure", ["scanner", "ranker"])

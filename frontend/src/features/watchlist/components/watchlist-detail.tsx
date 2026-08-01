@@ -13,7 +13,7 @@ export function WatchlistDetail({ tradingDate, symbol }: { tradingDate: string; 
   if (status === "loading") return <main className="watchlist-shell"><WatchlistLoading/></main>;
   if (status === "not-found") return <main className="watchlist-shell"><WatchlistEmpty notFound/></main>;
   if (status === "error" || !detail) return <main className="watchlist-shell"><WatchlistError onRetry={() => setAttempt(v => v + 1)}/></main>;
-  return <main className="watchlist-shell detail"><Link className="back-link" href={`/watchlist?date=${encodeURIComponent(tradingDate)}`}>← 목록으로</Link><header className="detail-hero"><p>{detail.trading_date}</p><div><span className="detail-rank">#{detail.rank}</span><h1>{detail.symbol}</h1></div><p className="detail-score"><span>종합 점수</span>{formatDecimal(detail.total_score)}</p></header>
+  return <main className="watchlist-shell detail"><Link className="back-link" href={`/watchlist?date=${encodeURIComponent(tradingDate)}`}>← 목록으로</Link><header className="detail-hero"><p>{detail.trading_date}</p><div><span className="detail-rank">#{detail.rank}</span><h1>{detail.symbol}</h1></div><p className="detail-score"><span>종합 점수</span>{formatDecimal(detail.total_score)}</p><Link className="back-link" href={`/analysis?symbol=${encodeURIComponent(detail.symbol)}`}>최신 차트로 실시간 분석 →</Link></header>
     {(detail.screener_name || detail.screener_version) && <p>{detail.screener_name ?? "스크리너"} v{detail.screener_version ?? "—"}</p>}
     {detail.primary_setup && <p>대표 셋업: {detail.primary_setup}</p>}
     {detail.matched_setups?.length ? <p>일치 셋업: {detail.matched_setups.join(", ")}</p> : null}

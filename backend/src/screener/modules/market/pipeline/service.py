@@ -105,7 +105,13 @@ class DailyWatchlistPipeline:
             candidates = self.scanner.scan(inputs)
             stage = PipelineStage.CANDIDATE_RANKING
             await self._stage(run.id, stage)
-            ranked = self.ranker.rank(candidates)[: self.screening_config.maximum_candidates]
+            scored = self.ranker.rank(candidates)
+            qualified = [
+                candidate
+                for candidate in scored
+                if candidate.total_score >= self.screening_config.minimum_candidate_score
+            ]
+            ranked = qualified[: self.screening_config.maximum_candidates]
             stage = PipelineStage.WATCHLIST_PERSISTENCE
             await self._stage(run.id, stage)
             async with self.sessions() as session:
@@ -115,7 +121,10 @@ class DailyWatchlistPipeline:
                         run.id,
                         status=ExecutionStatus.SUCCEEDED,
                         stage=PipelineStage.COMPLETED,
+                        screened_count=len(inputs),
                         candidate_count=len(candidates),
+                        qualified_count=len(qualified),
+                        score_threshold=self.screening_config.minimum_candidate_score,
                         persisted_count=len(ranked),
                         commit=False,
                     )
@@ -127,12 +136,16 @@ class DailyWatchlistPipeline:
             result = self._result(record)
             logger.info(
                 "watchlist_pipeline_complete execution_id=%s trading_date=%s status=%s "
-                "candidate_count=%d persisted_count=%d duration_ms=%d",
+                "screened_count=%d candidate_count=%d qualified_count=%d "
+                "persisted_count=%d score_threshold=%s duration_ms=%d",
                 run.id,
                 target,
                 result.status,
+                len(inputs),
                 len(candidates),
+                len(qualified),
                 len(ranked),
+                self.screening_config.minimum_candidate_score,
                 int((datetime.now(UTC) - started).total_seconds() * 1000),
             )
             return result
@@ -237,7 +250,10 @@ class DailyWatchlistPipeline:
             started_at=record.started_at,
             finished_at=record.finished_at,
             stage=record.stage,
+            screened_count=record.screened_count,
             candidate_count=record.candidate_count,
+            qualified_count=record.qualified_count,
+            score_threshold=record.score_threshold,
             persisted_count=record.persisted_count,
             skipped_reason=record.skipped_reason,
             error_code=record.error_code,

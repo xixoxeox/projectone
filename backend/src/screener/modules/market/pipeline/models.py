@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -52,7 +53,10 @@ class PipelineResult(BaseModel):
     started_at: datetime
     finished_at: datetime | None = None
     stage: PipelineStage
+    screened_count: int | None = None
     candidate_count: int | None = None
+    qualified_count: int | None = None
+    score_threshold: Decimal | None = None
     persisted_count: int | None = None
     skipped_reason: str | None = None
     error_code: str | None = None

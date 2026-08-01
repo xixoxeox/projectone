@@ -50,7 +50,7 @@ async def test_upgrade_downgrade_upgrade_on_fresh_database(
     await migrate("head")
     async with sessions() as session:
         assert await session.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0008_watchlist_reanalysis"
+            "0009_screening_summary"
         )
 
 
@@ -80,7 +80,7 @@ async def test_downgrade_refuses_without_changing_index_or_history(
         await session.commit()
 
     with pytest.raises(RuntimeError, match="preserved reanalysis audit history"):
-        await migrate("-1")
+        await migrate("0007_portfolio_snapshots")
 
     async with sessions() as session:
         rows = list(
@@ -102,4 +102,4 @@ async def test_downgrade_refuses_without_changing_index_or_history(
     assert len(rows) == 2
     assert all(row.status == "succeeded" for row in rows)
     assert index_exists is True
-    assert version == "0008_watchlist_reanalysis"
+    assert version == "0009_screening_summary"

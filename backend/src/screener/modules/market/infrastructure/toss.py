@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from screener.modules.market.domain import (
     DailyBar,
     InstrumentSnapshot,
+    MinuteBar,
     ProviderAuthenticationError,
     ProviderForbiddenError,
     ProviderMalformedResponseError,
@@ -143,6 +144,7 @@ class TossApiSpecification:
     PRICES_PATH = "/api/v1/prices"
     STOCKS_PATH = "/api/v1/stocks"
     WARNINGS_PATH = "/api/v1/stocks/{symbol}/warnings"
+    MINUTE_INTERVAL = "1m"
     DAILY_INTERVAL = "1d"
     MAX_CANDLES = 200
     MAX_STOCK_SYMBOLS = 200
@@ -280,6 +282,45 @@ class TossMarketDataProvider:
             value = payload.get("nextBefore")
             before = str(value) if value else None
         return [by_date[value] for value in sorted(by_date)]
+
+    async def minute_bars(self, symbol: str, count: int = 200) -> list[MinuteBar]:
+        if not 1 <= count <= self._spec.MAX_CANDLES:
+            raise ProviderValidationError("Invalid minute candle count", provider=PROVIDER)
+        response = await self._request(
+            self._spec.CANDLES_PATH,
+            {
+                "symbol": symbol,
+                "interval": self._spec.MINUTE_INTERVAL,
+                "count": str(count),
+                "adjusted": "true",
+            },
+            chart=True,
+        )
+        payload = self._result_object(response)
+        rows = self._rows(payload, "candles")
+        by_timestamp: dict[datetime, MinuteBar] = {}
+        try:
+            for row in rows:
+                timestamp = _parse_datetime(row["timestamp"])
+                bar = MinuteBar(
+                    symbol=symbol,
+                    timestamp=timestamp,
+                    open=_decimal(row["openPrice"]),
+                    high=_decimal(row["highPrice"]),
+                    low=_decimal(row["lowPrice"]),
+                    close=_decimal(row["closePrice"]),
+                    volume=_integer(row["volume"]),
+                    currency=str(row["currency"]),
+                    source=PROVIDER,
+                    as_of=timestamp,
+                )
+                existing = by_timestamp.get(timestamp)
+                if existing is not None and existing != bar:
+                    self._malformed()
+                by_timestamp[timestamp] = bar
+        except (KeyError, TypeError, ValueError, ValidationError, InvalidOperation) as exc:
+            self._malformed(exc)
+        return [by_timestamp[value] for value in sorted(by_timestamp)]
 
     async def prices(self, symbols: list[str]) -> list[QuoteSnapshot]:
         if not 1 <= len(symbols) <= self._spec.MAX_PRICE_SYMBOLS:

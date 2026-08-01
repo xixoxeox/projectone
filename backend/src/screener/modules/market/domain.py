@@ -62,6 +62,29 @@ class DailyBar(BaseModel):
         return self
 
 
+class MinuteBar(BaseModel):
+    symbol: str
+    timestamp: datetime
+    open: Decimal = Field(ge=0)
+    high: Decimal = Field(ge=0)
+    low: Decimal = Field(ge=0)
+    close: Decimal = Field(ge=0)
+    volume: int = Field(ge=0)
+    currency: str
+    source: str
+    as_of: datetime
+
+    @model_validator(mode="after")
+    def valid_minute_bar(self) -> "MinuteBar":
+        if self.timestamp.tzinfo is None or self.as_of.tzinfo is None:
+            raise ValueError("minute bar timestamps must be timezone-aware")
+        if self.high < max(self.open, self.close, self.low):
+            raise ValueError("high is inconsistent with OHLC values")
+        if self.low > min(self.open, self.close, self.high):
+            raise ValueError("low is inconsistent with OHLC values")
+        return self
+
+
 class QuoteSnapshot(BaseModel):
     symbol: str
     price: Decimal = Field(ge=0)
@@ -138,6 +161,7 @@ class MarketDataProvider(Protocol):
     async def status(self) -> ProviderStatus: ...
     async def instrument(self, symbol: str) -> InstrumentSnapshot: ...
     async def daily_bars(self, symbol: str, start: date, end: date) -> list[DailyBar]: ...
+    async def minute_bars(self, symbol: str, count: int = 200) -> list[MinuteBar]: ...
     async def prices(self, symbols: list[str]) -> list[QuoteSnapshot]: ...
     async def warnings(self, symbol: str) -> list[StockWarning]: ...
     async def stock_master(self, market: str = "KOSPI") -> list[InstrumentSnapshot]: ...

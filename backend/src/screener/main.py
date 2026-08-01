@@ -64,17 +64,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             skew_seconds=settings.toss_token_expiry_skew_seconds,
         )
     provider = TossMarketDataProvider(client, tokens, max_retries=settings.toss_max_retries)
+    screening_config = SwingScreeningConfig()
     app.state.toss_http_client = client
     app.state.token_manager = tokens
     app.state.market_data_provider = provider
-    app.state.market_data_service = MarketDataService(provider)
+    app.state.swing_screening_config = screening_config
+    app.state.market_data_service = MarketDataService(provider, screening_config)
     stock_sync = StockSyncService(SessionFactory, provider)
     bar_sync = DailyBarSyncService(
         SessionFactory, provider, settings.sync_history_years, settings.sync_batch_size
     )
     app.state.sync_coordinator = SyncCoordinator(stock_sync, bar_sync)
-    screening_config = SwingScreeningConfig()
-    app.state.swing_screening_config = screening_config
     pipeline = DailyWatchlistPipeline(
         SessionFactory,
         app.state.sync_coordinator,

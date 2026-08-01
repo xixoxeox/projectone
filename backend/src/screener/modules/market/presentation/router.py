@@ -16,6 +16,7 @@ from screener.modules.market.domain import (
     ProviderValidationError,
     StockWarning,
 )
+from screener.modules.market.technical_analysis import RealtimeTechnicalAnalysis
 
 router = APIRouter(tags=["market-data"])
 
@@ -83,6 +84,19 @@ async def instrument(symbol: str, _user: CurrentUser, service: Service) -> Instr
 async def warnings(symbol: str, _user: CurrentUser, service: Service) -> list[StockWarning]:
     try:
         return await service.warnings(symbol)
+    except (ValueError, ProviderError) as exc:
+        _raise(exc)
+    raise AssertionError("unreachable")
+
+
+@router.get("/instruments/{symbol}/analysis", response_model=RealtimeTechnicalAnalysis)
+async def realtime_analysis(
+    symbol: str,
+    _user: CurrentUser,
+    service: Service,
+) -> RealtimeTechnicalAnalysis:
+    try:
+        return await service.realtime_analysis(symbol)
     except (ValueError, ProviderError) as exc:
         _raise(exc)
     raise AssertionError("unreachable")
